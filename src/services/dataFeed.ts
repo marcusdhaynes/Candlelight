@@ -532,7 +532,7 @@ export async function fetchHistoricalData(asset: Asset, timeframe: Timeframe): P
   }
 
   // 6. Realistic fallback candles based on exact current asset price (deep 1200 candles)
-  return generateSyntheticCandles(asset.price, timeframe, 1200);
+  return []; // Never fabricate market history when the provider is unavailable.
 }
 
 /**
@@ -698,6 +698,7 @@ export function subscribeRealMarketData(
     volume: 1,
   };
 
+  let receivedFirstPrice = false;
   let pendingPrice: number = asset.price;
   let pendingCandleDirty = false;
   let pendingPriceDirty = false;
@@ -721,15 +722,12 @@ export function subscribeRealMarketData(
 
     const now = Date.now();
     if (latestTrade && now - lastTradeDispatch > 120) {
-      callbacks.onTrade(latestTrade);
+      if (latestTrade.size > 0) callbacks.onTrade(latestTrade);
       latestTrade = null;
       lastTradeDispatch = now;
     }
 
-    if (now - lastOrderBookDispatch > 280) {
-      callbacks.onOrderBook(generateOrderBook(pendingPrice));
-      lastOrderBookDispatch = now;
-    }
+
   };
 
   // High-performance smooth batch flush at ~30 FPS (33ms)
@@ -741,6 +739,10 @@ export function subscribeRealMarketData(
     const nowSec = Math.floor(Date.now() / 1000);
     const candleBucket = Math.floor(nowSec / stepSeconds) * stepSeconds;
 
+    if (!receivedFirstPrice) {
+      receivedFirstPrice = true;
+      activeCandle = { time: candleBucket, open: price, high: price, low: price, close: price, volume: 0 };
+    }
     if (candleBucket > activeCandle.time) {
       // Flush previous candle closed immediately
       callbacks.onCandleTick(activeCandle, true);
@@ -806,7 +808,7 @@ export function subscribeRealMarketData(
           const data = JSON.parse(event.data);
           if (data.feed === 'ticker' && data.last != null) {
             const price = parseFloat(data.last);
-            const size = parseFloat(data.volume || '10');
+            const size = 0; // Ticker volume is cumulative, not the size of this update.
             updateWithLivePrice(price, size, 'buy');
           }
         } catch {
@@ -924,11 +926,11 @@ export function subscribeRealMarketData(
       // WS failed
     }
   } else {
-    // Case 3: Stocks (AAPL, TSLA, NVDA, SPY), Forex, Commodities
+    // Case 3: Stocks, forex, commodities: no streaming connection established.
     callbacks.onStatusChange({
-      connected: true,
-      provider: `Live Market Feed (${asset.exchange})`,
-      latencyMs: 32,
+      connected: false,
+      provider: `Quote polling (${asset.exchange}); availability unverified`,
+      latencyMs: 0,
     });
   }
 
@@ -952,17 +954,7 @@ export function subscribeRealMarketData(
     pollInterval = setInterval(pollQuote, 2500);
   }
 
-  // High-precision smooth heartbeat ticks if market is slow or off-hours
-  tickInterval = setInterval(() => {
-    if (isUnsubscribed) return;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      const volatility = 0.0003;
-      const pctChange = (Math.random() - 0.495) * volatility;
-      const currentPrice = asset.price * (1 + pctChange);
-      const roundedPrice = Number(currentPrice.toFixed(asset.digits));
-      updateWithLivePrice(roundedPrice, Math.random() * 2 + 0.1, Math.random() > 0.5 ? 'buy' : 'sell');
-    }
-  }, 1000);
+
 
   return () => {
     isUnsubscribed = true;
