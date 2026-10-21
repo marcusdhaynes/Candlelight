@@ -1286,13 +1286,15 @@ export default function App() {
       )}
 
       {/* Modals */}
-      <SymbolSearchModal
-        isOpen={isSymbolSearchOpen}
-        onClose={() => setIsSymbolSearchOpen(false)}
-        assets={assets}
-        onSelectAsset={handleSelectAsset}
-        currentSymbol={activeAsset.symbol}
-      />
+      {isSymbolSearchOpen && (
+        <SymbolSearchModal
+          isOpen={isSymbolSearchOpen}
+          onClose={() => setIsSymbolSearchOpen(false)}
+          assets={assets}
+          onSelectAsset={handleSelectAsset}
+          currentSymbol={activeAsset.symbol}
+        />
+      )}
 
       <IndicatorsModal
         isOpen={isIndicatorsOpen}
