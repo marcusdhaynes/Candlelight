@@ -38,6 +38,9 @@ export interface Asset {
   /** Provenance of the displayed quote; bundled example values are not live quotes. */
   quoteStatus?: 'live' | 'delayed' | 'unavailable';
   quoteUpdatedAt?: number;
+  /** Specific DEX pool locator; never infer this from a shared ticker. */
+  pairAddress?: string;
+  chainId?: string;
 }
 
 export type Timeframe =
