@@ -13,7 +13,7 @@ const marketOf = (a: Asset) => a.symbol.toUpperCase();
 const isKrakenDerivative = (a: Asset) =>
   sourceOf(a).startsWith('kraken') && (a.marketType === 'swap' || a.marketType === 'futures');
 const supported = (a: Asset) =>
-  ['kraken', 'kraken futures', 'coinbase', 'binance', 'binance.us', 'okx', 'bybit'].includes(sourceOf(a));
+  ['kraken', 'kraken futures', 'coinbase', 'binance', 'binance.us', 'okx', 'bybit', 'hyperliquid (hyperliquid)'].includes(sourceOf(a));
 const futureSymbol = (s: string) => {
   if (s.startsWith('PF_') || s.startsWith('PI_') || s.startsWith('FF_')) return s;
   const b = s.replace(/\.P$/, '');
@@ -66,6 +66,18 @@ async function getKrakenFuturesTickers(): Promise<any[]> {
     .finally(() => { krakenFuturesRequest = null; });
   return krakenFuturesRequest;
 }
+let hyperCache: Record<string, {at: number; data: any}> = {};
+const hyperInfo = async (type: string): Promise<any> => {
+  const cached = hyperCache[type];
+  if (cached && Date.now() - cached.at < 5000) return cached.data;
+  const res = await fetch('https://api.hyperliquid.xyz/info', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({type}),
+    signal: AbortSignal.timeout(9000) });
+  if (!res.ok) throw new Error('Hyperliquid info HTTP ' + res.status);
+  const data = await res.json();
+  hyperCache[type] = {at: Date.now(), data};
+  return data;
+};
 /** Exact-market public quote lookup, with no cross-exchange substitutions. */
 export async function fetchPublicQuote(a: Asset): Promise<Partial<Asset> | null> {
   const source = sourceOf(a), s = marketOf(a);
@@ -79,6 +91,16 @@ export async function fetchPublicQuote(a: Asset): Promise<Partial<Asset> | null>
       return { price, change24h: price - price/(1+change/100), changePercent24h: change,
         volume24h: formatVolume(Number(pool?.volume?.h24)), quoteStatus: 'delayed',
         quoteUpdatedAt: Date.now() };
+    }
+    if (source === 'hyperliquid (hyperliquid)') {
+      const spot = a.marketType === 'spot';
+      const [meta, contexts] = await hyperInfo(spot ? 'spotMetaAndAssetCtxs' : 'metaAndAssetCtxs');
+      const i = spot ? (a.feedSymbol?.startsWith('@') ? Number(a.feedSymbol.slice(1)) :
+        meta.universe?.findIndex((m: any) => m.name === a.feedSymbol)) :
+        meta.universe?.findIndex((m: any) => m.name === a.feedSymbol);
+      const ctx = contexts?.[i], price = Number(ctx?.markPx || ctx?.midPx);
+      const previous = Number(ctx?.prevDayPx) || price;
+      return ctx ? toQuote(a, price, previous, price, price, Number(ctx?.dayNtlVlm)) : null;
     }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
@@ -142,6 +164,20 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
       return cleanCandles((data.data?.attributes?.ohlcv_list || []).map((k: any) => ({
         time: Number(k[0]), open: Number(k[1]), high: Number(k[2]),
         low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+    }
+    if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol) {
+      const interval = timeframe === '1D' ? '1d' : timeframe === '1W' ? '1w' :
+        ['1m','3m','5m','15m','30m','1h','2h','4h','1M'].includes(timeframe) ? timeframe : '1h';
+      const endTime = Date.now(), startTime = endTime - Math.min(5000,300) * (delaySeconds[timeframe] || 3600) * 1000;
+      const res = await fetch('https://api.hyperliquid.xyz/info', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({type:'candleSnapshot', req: { coin: a.feedSymbol, interval, startTime, endTime }}),
+        signal: AbortSignal.timeout(9000) });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return cleanCandles((Array.isArray(data) ? data : []).map((k:any) => ({
+        time: Math.floor(Number(k.t)/1000), open: Number(k.o), high: Number(k.h),
+        low: Number(k.l), close: Number(k.c), volume: Number(k.v) || 0 })));
     }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
@@ -253,6 +289,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     else if (source === 'binance.us') url = 'wss://stream.binance.us:9443/ws/' + symbol.toLowerCase() + '@trade';
     else if (source === 'okx') url = 'wss://ws.okx.com:8443/ws/v5/public';
     else if (source === 'bybit') url = 'wss://stream.bybit.com/v5/public/' + (a.marketType === 'spot' ? 'spot' : 'linear');
+    else if (source === 'hyperliquid (hyperliquid)') url = 'wss://api.hyperliquid.xyz/ws';
     if (!url) return;
     try {
       ws = new WebSocket(url);
@@ -270,6 +307,8 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
           type: 'subscribe', product_ids: [coinbaseSymbol(symbol)], channels: ['ticker'] }));
         else if (source === 'okx') ws?.send(JSON.stringify({ op: 'subscribe', args: [{ channel: 'tickers', instId: symbol }] }));
         else if (source === 'bybit') ws?.send(JSON.stringify({ op: 'subscribe', args: ['tickers.' + symbol] }));
+        else if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol)
+          ws?.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'trades', coin: a.feedSymbol } }));
       };
       ws.onmessage = e => {
         if (stopped) return;
@@ -291,6 +330,10 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
               tick(Number(d[0].last),0,'buy');
           } else if (source === 'bybit') {
             if (raw.topic === 'tickers.'+symbol) tick(Number(d?.lastPrice),0,'buy');
+          } else if (source === 'hyperliquid (hyperliquid)' && raw.channel === 'trades') {
+            for (const t of (Array.isArray(d) ? d : [])) {
+              if (t.coin === a.feedSymbol) tick(Number(t.px), Number(t.sz)||0, t.side === 'A' ? 'sell' : 'buy');
+            }
           }
         } catch { /* Ignore other channel messages. */ }
       };
