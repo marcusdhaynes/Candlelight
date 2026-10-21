@@ -266,7 +266,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       candle.close = price; candle.volume += Math.max(size,0);
     }
     pending = {price,size,side};
-    if (live && Date.now() - lastBroadcast > 250) {
+    if (live && Date.now() - lastBroadcast > 5000) {
       status(true,'live WebSocket');
       lastBroadcast = Date.now();
     }
