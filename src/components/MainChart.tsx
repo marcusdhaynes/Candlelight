@@ -270,43 +270,7 @@ export const MainChart = React.memo(
 
       chart.subscribeCrosshairMove(handleCrosshairMove);
 
-      // Replace TV attribution logo with custom logo
-      const replaceTvLogo = () => {
-        if (!chartContainerRef.current) return;
-        const tvLogo = chartContainerRef.current.querySelector('a#tv-attr-logo') as HTMLAnchorElement | null;
-        if (tvLogo) {
-          tvLogo.title = 'Chart Platform';
-          tvLogo.href = '#';
-          const svg = tvLogo.querySelector('svg');
-          if (svg) {
-            svg.style.display = 'none';
-          }
-          let existingImg = tvLogo.querySelector('.custom-attr-logo') as HTMLImageElement | null;
-          if (!existingImg) {
-            existingImg = document.createElement('img');
-            existingImg.className = 'custom-attr-logo';
-            existingImg.src = '/image-transparent.png';
-            existingImg.alt = 'Logo';
-            tvLogo.appendChild(existingImg);
-          }
-          existingImg.style.width = '40px';
-          existingImg.style.height = '40px';
-          existingImg.style.objectFit = 'contain';
-          existingImg.style.display = 'block';
-        }
-      };
-
-      replaceTvLogo();
-      const mutationObserver = new MutationObserver(() => {
-        replaceTvLogo();
-      });
-      mutationObserver.observe(chartContainerRef.current, {
-        childList: true,
-        subtree: true,
-      });
-
       return () => {
-        mutationObserver.disconnect();
         chart.unsubscribeCrosshairMove(handleCrosshairMove);
         resizeObserver.disconnect();
         activeSeriesRef.current.forEach((s) => {
