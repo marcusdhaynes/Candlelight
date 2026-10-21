@@ -70,6 +70,16 @@ async function getKrakenFuturesTickers(): Promise<any[]> {
 export async function fetchPublicQuote(a: Asset): Promise<Partial<Asset> | null> {
   const source = sourceOf(a), s = marketOf(a);
   try {
+    if (a.pairAddress && a.chainId) {
+      const result = await api('https://api.dexscreener.com/latest/dex/pairs/' +
+        encodeURIComponent(a.chainId) + '/' + encodeURIComponent(a.pairAddress));
+      const pool = (result.pairs || []).find((p: any) => p.pairAddress?.toLowerCase() === a.pairAddress?.toLowerCase());
+      const price = Number(pool?.priceUsd), change = Number(pool?.priceChange?.h24) || 0;
+      if (!Number.isFinite(price) || price <= 0) return null;
+      return { price, change24h: price - price/(1+change/100), changePercent24h: change,
+        volume24h: formatVolume(Number(pool?.volume?.h24)), quoteStatus: 'delayed',
+        quoteUpdatedAt: Date.now() };
+    }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
         const row = (await getKrakenFuturesTickers()).find((t: any) => t.symbol?.toUpperCase() === futureSymbol(s));
@@ -117,6 +127,22 @@ const cleanCandles = (candles: OHLCV[]) =>
 export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promise<OHLCV[]> {
   const source = sourceOf(a), s = marketOf(a);
   try {
+    if (a.pairAddress && a.chainId) {
+      const chains: Record<string,string> = { ethereum: 'eth', bsc: 'bsc', solana: 'solana',
+        base: 'base', polygon: 'polygon_pos', arbitrum: 'arbitrum', avalanche: 'avax',
+        optimism: 'optimism', sui: 'sui-network', unichain: 'unichain' };
+      const chain = chains[a.chainId.toLowerCase()] || a.chainId;
+      const interval = ['1m','3m','5m','15m','30m'].includes(timeframe) ? 'minute' :
+        ['1D','1W','1M'].includes(timeframe) ? 'day' : 'hour';
+      const aggregate = interval === 'minute' ? ({'1m':1,'3m':1,'5m':5,'15m':15,'30m':15} as Record<string,number>)[timeframe] :
+        interval === 'day' ? 1 : ['4h'].includes(timeframe) ? 4 : 1;
+      const data = await api('https://api.geckoterminal.com/api/v2/networks/' +
+        encodeURIComponent(chain) + '/pools/' + encodeURIComponent(a.pairAddress) +
+        '/ohlcv/' + interval + '?aggregate=' + aggregate + '&limit=300&currency=usd');
+      return cleanCandles((data.data?.attributes?.ohlcv_list || []).map((k: any) => ({
+        time: Number(k[0]), open: Number(k[1]), high: Number(k[2]),
+        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+    }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
         const data = await api('/api/kraken/futures-chart?symbol=' + encodeURIComponent(futureSymbol(s)) +
@@ -165,6 +191,21 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
 /** Direct public WebSockets, backed by REST polling if browser/network blocks WS. */
 export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCallbacks): () => void {
   const source = sourceOf(a), symbol = marketOf(a), step = delaySeconds[timeframe] || 60;
+  if (a.pairAddress && a.chainId) {
+    let stopped = false;
+    cb.onStatusChange({ connected: false, provider: 'DEX indexed snapshot · non-streaming', latencyMs: 0 });
+    const refresh = async () => {
+      const q = await fetchPublicQuote(a);
+      if (stopped) return;
+      if (q && typeof q.price === 'number') {
+        cb.onPriceUpdate(q.price, q.change24h, q.changePercent24h);
+        cb.onStatusChange({ connected: true, provider: 'DEX public snapshot · not tick data', latencyMs: 0 });
+      } else cb.onStatusChange({ connected: false, provider: 'DEX snapshot unavailable', latencyMs: 0 });
+    };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 30000);
+    return () => { stopped = true; clearInterval(timer); };
+  }
   if (!supported(a)) {
     cb.onStatusChange({ connected: false, provider: a.exchange + ': no verified free browser feed', latencyMs: 0 });
     return () => {};
@@ -175,7 +216,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   let pending: { price: number; size: number; side: 'buy'|'sell' } | null = null;
   const status = (connected: boolean, via: string) => {
     if (stopped) return;
-    cb.onStatusChange({ connected, provider: `${a.source || a.exchange} · ${via}`, latencyMs: connected ? Math.max(1, Date.now() - lastOpen) : 0 });
+    cb.onStatusChange({ connected, provider: `${a.source || a.exchange} · ${via}`, latencyMs: 0 });
   };
   const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true) => {
     if (stopped || !Number.isFinite(price) || price <= 0) return;
