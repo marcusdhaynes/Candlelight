@@ -35,6 +35,9 @@ export interface Asset {
   isCex?: boolean;
   iconType?: string;
   subCategory?: string;
+  /** Provenance of the displayed quote; bundled example values are not live quotes. */
+  quoteStatus?: 'live' | 'delayed' | 'unavailable';
+  quoteUpdatedAt?: number;
 }
 
 export type Timeframe =
