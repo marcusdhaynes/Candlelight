@@ -84,8 +84,8 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
   const sourceCounts = useMemo(() => {
     const map = new Map<string, number>();
     allAssets.forEach(a => {
-      const key = (a.source || a.exchange).toLowerCase();
-      map.set(key, (map.get(key) || 0) + 1);
+      new Set([a.source, a.exchange].filter(Boolean).map(v => v!.toLowerCase())).forEach(key =>
+        map.set(key, (map.get(key) || 0) + 1));
     });
     return map;
   }, [allAssets]);
@@ -112,7 +112,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
 
       // Source filter
       if (selectedSource !== 'all') {
-        const sourceMatch = (asset.source || asset.exchange).toLowerCase() === selectedSource.toLowerCase();
+        const sourceMatch = [asset.source, asset.exchange].some(value => value?.toLowerCase() === selectedSource.toLowerCase());
         if (!sourceMatch) return false;
       }
 
@@ -547,7 +547,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
               >
                 <span>
                   {selectedExchangeType === 'all'
-                    ? 'All exchange types'
+                    ? 'All exchanges'
                     : selectedExchangeType.toUpperCase()}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5" />
@@ -568,7 +568,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                         selectedExchangeType === et ? 'text-[#2962ff] font-medium' : 'text-[#d1d4dc]'
                       }`}
                     >
-                      <span>{et === 'all' ? 'All exchange types' : et.toUpperCase()}</span>
+                      <span>{et === 'all' ? 'All exchanges' : et.toUpperCase()}</span>
                       {selectedExchangeType === et && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
                     </div>
                   ))}
@@ -593,7 +593,11 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
         <div className="flex-1 overflow-y-auto divide-y divide-[#2a2e39]/40 min-h-72">
           {filteredAssets.length === 0 ? (
             <div className="p-12 text-center text-sm text-[#787b86]">
-              No instruments found matching criteria.
+              <div>No verified instruments found for these filters.</div>
+              {selectedSource !== 'all' && (
+                <div className="mt-2 text-xs">Provider directories are searchable, but not every exchange exposes a free browser-accessible feed.</div>
+              )}
+              {isDiscovering && <div className="mt-2 text-xs">Checking public exchange catalogs…</div>}
             </div>
           ) : (
             filteredAssets.slice(0, resultLimit).map((originalAsset) => {
@@ -643,7 +647,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                       {verified && Number.isFinite(asset.price) ? asset.price.toLocaleString(undefined, {
                         minimumFractionDigits: Math.min(asset.digits, 6),
                         maximumFractionDigits: Math.min(asset.digits, 8),
-                      }) : '—'}
+                      }) + ' ' + asset.currency : '—'}
                     </span>
                     <span
                       className={`text-[10px] font-mono font-medium ${
