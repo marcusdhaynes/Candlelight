@@ -833,6 +833,9 @@ export const MainChart = React.memo(
         signalLineSeries.setData(macdData.map((d) => ({ time: d.time as any, value: d.signal })));
       }
 
+      if (!bundle || bundle.symbol !== asset.symbol || bundle.timeframe !== timeframe || (bundle.candleCount < 10 && candles.length > 10)) {
+        chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 180), to: candles.length + 4 });
+      }
       seriesBundleRef.current = {
         symbol: asset.symbol,
         timeframe,

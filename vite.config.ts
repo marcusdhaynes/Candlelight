@@ -305,6 +305,7 @@ function realTimeMarketApiPlugin(): Plugin {
 
 export default defineConfig(() => {
   return {
+    base: process.env.GITHUB_PAGES === 'true' ? '/Candlelight/' : '/',
     plugins: [react(), tailwindcss(), realTimeMarketApiPlugin()],
     resolve: {
       alias: {

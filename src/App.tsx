@@ -99,23 +99,7 @@ export default function App() {
     return saved ? saved : watchlists[0].id;
   });
 
-  // Synchronize live catalog with background refresh
-  useEffect(() => {
-    fetch('/api/kraken/catalog')
-      .then((r) => r.json())
-      .then((catalog) => {
-        if (Array.isArray(catalog) && catalog.length > 100) {
-          setAssets((prev) => {
-            const map = new Map<string, Asset>();
-            catalog.forEach((item: Asset) => map.set(item.symbol, item));
-            const updated = prev.map((a) => (map.has(a.symbol) ? { ...a, ...map.get(a.symbol) } : a));
-            localStorage.setItem('tv_assets_v4', JSON.stringify(updated));
-            return updated;
-          });
-        }
-      })
-      .catch(() => {});
-  }, []);
+  // The exported Kraken catalog is bundled locally; no AI Studio server is needed.
 
   // Price Flash Map for Watchlist ticker animations
   const [priceFlashMap, setPriceFlashMap] = useState<Record<string, 'up' | 'down'>>({});
@@ -1097,7 +1081,7 @@ export default function App() {
       className="flex flex-col h-screen w-screen overflow-hidden bg-[#131722] text-[#d1d4dc] font-sans antialiased"
     >
       <div role="note" className="shrink-0 bg-[#202534] px-3 py-1 text-[11px] text-[#c5c9d4]">
-        <strong>Candlelight</strong> · Research preview · Paper trading only · Feed coverage and candle accuracy under validation. Depth unavailable. Some journal/account examples are demo data.
+        <strong>Candlelight</strong> · {isLoadingCandles ? 'Loading history…' : `${candles.length.toLocaleString()} candles`} · Research preview · Paper trading only · Feed coverage and candle accuracy under validation. Depth unavailable. Some journal/account examples are demo data.
         {' '}Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer" className="underline">TradingView Lightweight Charts</a>.
       </div>
       {/* Top Navbar */}

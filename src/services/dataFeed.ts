@@ -1,3 +1,4 @@
+import { marketFetch as fetch } from './marketApi';
 import { Asset, OHLCV, Timeframe, OrderBookItem, TradeItem } from '../types';
 
 // Map timeframe string to seconds
@@ -401,10 +402,13 @@ export async function fetchHistoricalData(asset: Asset, timeframe: Timeframe): P
           return data.candles;
         }
       }
-    } catch {
-      // Fallback to direct or spot
+    } catch (error) {
+      console.warn('Kraken historical feed unavailable', error);
+      // History unavailable
     }
   }
+
+  if (isKrakenFutures) return []; // Never substitute a spot chart for a derivative.
 
   // 2. Prioritize Kraken Spot for Kraken pairings
   const isKrakenSpot =
