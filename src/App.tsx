@@ -735,7 +735,7 @@ export default function App() {
             changePercent24h: updatedChangePct,
             high24h: Math.max(prev.high24h, newPrice),
             low24h: prev.low24h > 0 ? Math.min(prev.low24h, newPrice) : newPrice,
-            quoteStatus: 'live',
+            quoteStatus: activeAsset.pairAddress ? 'delayed' : 'live',
             quoteUpdatedAt: now,
           };
         });
@@ -753,7 +753,7 @@ export default function App() {
                     price: newPrice,
                     high24h: Math.max(a.high24h, newPrice),
                     low24h: a.low24h > 0 ? Math.min(a.low24h, newPrice) : newPrice,
-                    quoteStatus: 'live',
+                    quoteStatus: activeAsset.pairAddress ? 'delayed' : 'live',
                     quoteUpdatedAt: now,
                   }
                 : a
