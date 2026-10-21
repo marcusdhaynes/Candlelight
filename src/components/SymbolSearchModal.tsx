@@ -1,4 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
+import { MARKET_SOURCES, sourceInfo } from '../data/marketSources';
+import { discoverPublicMarkets } from '../services/marketDiscovery';
+import { fetchRealTicker24h } from '../services/dataFeed';
 import { Asset, AssetCategory } from '../types';
 import { Search, X, ChevronDown, Check } from 'lucide-react';
 
@@ -22,7 +25,7 @@ const CATEGORY_TABS: { id: FilterCategory; label: string }[] = [
   { id: 'indices', label: 'Indices' },
   { id: 'bonds', label: 'Bonds' },
   { id: 'economy', label: 'Economy' },
-  { id: 'options', label: 'Options' },
+  { id: 'options', label: 'Option' },
 ];
 
 export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
@@ -33,26 +36,66 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
   currentSymbol,
 }) => {
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<FilterCategory>('crypto'); // Default to 'crypto' as in user screenshot!
+  const [selectedCategory, setSelectedCategory] = useState<FilterCategory>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedExchangeType, setSelectedExchangeType] = useState<string>('all');
 
+  const [sourceSearch, setSourceSearch] = useState('');
+  const [discovered, setDiscovered] = useState<Asset[]>([]);
+  const [discoveryErrors, setDiscoveryErrors] = useState<string[]>([]);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [resultLimit, setResultLimit] = useState(150);
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, Partial<Asset>>>({});
+  const deferredSearch = useDeferredValue(search);
+  const quoteKey = (a: Asset) => `${a.source || a.exchange}:${a.marketType || ''}:${a.symbol}`;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setIsDiscovering(true);
+    discoverPublicMarkets().then(results => {
+      if (cancelled) return;
+      setDiscovered(results.flatMap(r => r.assets));
+      setDiscoveryErrors(results.filter(r => r.error).map(r => `${r.source}: ${r.error}`));
+    }).finally(() => { if (!cancelled) setIsDiscovering(false); });
+    return () => { cancelled = true; };
+  }, [isOpen]);
+
+  const allAssets = useMemo(() => {
+    const seen = new Set<string>();
+    return [...assets, ...discovered].filter(a => {
+      const key = quoteKey(a);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [assets, discovered]);
+
+  useEffect(() => { setResultLimit(150); }, [selectedCategory, selectedSource, selectedType, selectedExchangeType, deferredSearch]);
+
   const [openDropdown, setOpenDropdown] = useState<'source' | 'type' | 'exchange' | null>(null);
 
-  // Derive unique sources from assets
+  // Every listed source is selectable; listings without a working feed remain explicitly unverified.
   const availableSources = useMemo(() => {
-    const set = new Set<string>();
-    assets.forEach((a) => {
-      if (a.source) set.add(a.source);
-      else if (a.exchange) set.add(a.exchange);
+    const names = new Set([...MARKET_SOURCES.map(s => s.name), ...allAssets.map(a => a.source || a.exchange)]);
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [allAssets]);
+  const sourceCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    allAssets.forEach(a => {
+      const key = (a.source || a.exchange).toLowerCase();
+      map.set(key, (map.get(key) || 0) + 1);
     });
-    return Array.from(set).sort();
-  }, [assets]);
+    return map;
+  }, [allAssets]);
+  const matchingSources = useMemo(() =>
+    availableSources.filter(s => s.toLowerCase().includes(sourceSearch.trim().toLowerCase())),
+    [availableSources, sourceSearch]);
 
   // Filtering
   const filteredAssets = useMemo(() => {
-    const list = assets.filter((asset) => {
+    const list = allAssets.filter((asset) => {
       // Category filter
       if (selectedCategory !== 'all') {
         if (selectedCategory === 'crypto' && asset.category !== 'crypto') return false;
@@ -78,18 +121,22 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
         if (selectedType === 'spot' && asset.marketType !== 'spot') return false;
         if (selectedType === 'swap' && asset.marketType !== 'swap') return false;
         if (selectedType === 'index' && asset.marketType !== 'index') return false;
-        if (selectedType === 'futures' && asset.marketType !== 'futures' && asset.marketType !== 'swap') return false;
+        if (selectedType === 'futures' && asset.marketType !== 'futures') return false;
+        if (selectedType === 'fundamental' && asset.category !== 'economy' && asset.peRatio === undefined) return false;
       }
 
       // Exchange type filter
       if (selectedExchangeType !== 'all') {
-        if (selectedExchangeType === 'defi' && !asset.isDefi) return false;
-        if (selectedExchangeType === 'cex' && !asset.isCex) return false;
+        const providerKind = sourceInfo(asset.source || asset.exchange)?.kind;
+        const isDex = providerKind === 'DEX' || (asset.isDefi === true && asset.isCex !== true);
+        const isCex = providerKind === 'CEX' || (asset.isCex === true && !isDex);
+        if (selectedExchangeType === 'dex' && !isDex) return false;
+        if (selectedExchangeType === 'cex' && !isCex) return false;
       }
 
       // Search term
-      if (search.trim()) {
-        const q = search.toLowerCase().trim();
+      if (deferredSearch.trim()) {
+        const q = deferredSearch.toLowerCase().trim();
         const matchesSymbol = asset.symbol.toLowerCase().includes(q);
         const matchesName = asset.name.toLowerCase().includes(q);
         const matchesExchange = asset.exchange.toLowerCase().includes(q);
@@ -103,8 +150,8 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
       return true;
     });
 
-    if (search.trim()) {
-      const q = search.toLowerCase().trim();
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.toLowerCase().trim();
       return list.sort((a, b) => {
         const aExact = a.symbol.toLowerCase() === q;
         const bExact = b.symbol.toLowerCase() === q;
@@ -121,7 +168,28 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
     }
 
     return list;
-  }, [assets, selectedCategory, selectedSource, selectedType, selectedExchangeType, search]);
+  }, [allAssets, selectedCategory, selectedSource, selectedType, selectedExchangeType, deferredSearch]);
+
+  // Refresh just the visible leaders, not thousands of symbols. Provider-specific calls
+  // are throttled and cannot silently substitute quotes from a different venue.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const leaders = filteredAssets.slice(0, 12).filter(a => ['Kraken', 'Kraken Futures', 'Coinbase', 'Binance', 'Binance.US', 'OKX', 'Bybit'].includes(a.source || a.exchange));
+    const refresh = async () => {
+      const updates = await Promise.all(leaders.map(async a => {
+        const quote = await fetchRealTicker24h(a).catch(() => null);
+        return quote ? [quoteKey(a), quote] as const : null;
+      }));
+      if (!cancelled) setLiveQuotes(prev => ({
+        ...prev,
+        ...Object.fromEntries(updates.filter((entry): entry is readonly [string, Partial<Asset>] => entry !== null)),
+      }));
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 15000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [isOpen, filteredAssets.slice(0, 12).map(quoteKey).join('|')]);
 
   if (!isOpen) return null;
 
@@ -310,7 +378,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
             </h2>
             <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#089981]/15 border border-[#089981]/30 text-[#089981] text-[11px] font-medium tracking-wide">
               <span className="w-1.5 h-1.5 rounded-full bg-[#089981] animate-pulse" />
-              <span>Real-Time Market Feeds</span>
+              <span>Public market feeds · live when verified</span>
             </div>
           </div>
           <button
@@ -392,7 +460,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
               </button>
               {openDropdown === 'source' && (
                 <div
-                  className="absolute left-0 top-full mt-1 w-44 bg-[#1e222d] border border-[#2a2e39] rounded-lg shadow-xl py-1 max-h-56 overflow-y-auto z-40"
+                  className="absolute left-0 top-full mt-1 w-72 bg-[#1e222d] border border-[#2a2e39] rounded-lg shadow-xl py-1 max-h-80 overflow-y-auto z-40"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
@@ -407,7 +475,12 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                     <span>All sources</span>
                     {selectedSource === 'all' && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
                   </div>
-                  {availableSources.map((src) => (
+                  <div className="sticky top-0 bg-[#1e222d] p-2 border-b border-[#2a2e39]">
+                    <input value={sourceSearch} onChange={e => setSourceSearch(e.target.value)}
+                      onClick={e => e.stopPropagation()} placeholder="Find any provider..."
+                      className="w-full bg-[#131722] border border-[#2a2e39] rounded px-2 py-1.5 text-xs text-white outline-none focus:border-[#2962ff]" />
+                  </div>
+                  {matchingSources.map((src) => (
                     <div
                       key={src}
                       onClick={() => {
@@ -418,7 +491,8 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                         selectedSource === src ? 'text-[#2962ff] font-medium' : 'text-[#d1d4dc]'
                       }`}
                     >
-                      <span>{src}</span>
+                      <span className="flex items-center gap-2 min-w-0"><span className="truncate">{src}</span>
+                      <span className="text-[9px] text-[#787b86] shrink-0">{sourceCounts.get(src.toLowerCase()) || '—'}</span></span>
                       {selectedSource === src && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
                     </div>
                   ))}
@@ -443,7 +517,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   className="absolute left-0 top-full mt-1 w-40 bg-[#1e222d] border border-[#2a2e39] rounded-lg shadow-xl py-1 z-40"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {['all', 'spot', 'swap', 'index', 'futures'].map((t) => (
+                  {['all', 'spot', 'swap', 'futures', 'index', 'fundamental'].map((t) => (
                     <div
                       key={t}
                       onClick={() => {
@@ -483,7 +557,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   className="absolute left-0 top-full mt-1 w-44 bg-[#1e222d] border border-[#2a2e39] rounded-lg shadow-xl py-1 z-40"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {['all', 'cex', 'defi'].map((et) => (
+                  {['all', 'cex', 'dex'].map((et) => (
                     <div
                       key={et}
                       onClick={() => {
@@ -504,14 +578,14 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
           </div>
 
           <div className="text-[11px] text-[#787b86]">
-            {filteredAssets.length} symbols
+            {filteredAssets.length.toLocaleString()} symbols {isDiscovering ? '· loading exchanges…' : ''}
           </div>
         </div>
 
         {/* Results Column Headers */}
         <div className="px-5 py-1.5 grid grid-cols-12 text-[10px] font-semibold text-[#787b86] uppercase tracking-wider bg-[#131722]/50 border-b border-[#2a2e39]/40">
           <div className="col-span-6">Symbol & Description</div>
-          <div className="col-span-3 text-right">Real-Time Price</div>
+          <div className="col-span-3 text-right">Price / freshness</div>
           <div className="col-span-3 text-right">Source / Feed</div>
         </div>
 
@@ -522,7 +596,9 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
               No instruments found matching criteria.
             </div>
           ) : (
-            filteredAssets.slice(0, 150).map((asset) => {
+            filteredAssets.slice(0, resultLimit).map((originalAsset) => {
+              const asset = { ...originalAsset, ...(liveQuotes[quoteKey(originalAsset)] || {}) };
+              const verified = asset.quoteStatus === 'live' && !!asset.quoteUpdatedAt && Date.now() - asset.quoteUpdatedAt < 60_000;
               const isCurrent = asset.symbol === currentSymbol;
               const isPositive = asset.changePercent24h >= 0;
 
@@ -564,18 +640,17 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   {/* Middle: Live Real-Time Price & 24h Change */}
                   <div className="col-span-3 flex flex-col items-end justify-center">
                     <span className="font-mono text-[13px] font-semibold text-white">
-                      ${asset.price.toLocaleString(undefined, {
-                        minimumFractionDigits: asset.digits,
-                        maximumFractionDigits: asset.digits,
-                      })}
+                      {verified && Number.isFinite(asset.price) ? asset.price.toLocaleString(undefined, {
+                        minimumFractionDigits: Math.min(asset.digits, 6),
+                        maximumFractionDigits: Math.min(asset.digits, 8),
+                      }) : '—'}
                     </span>
                     <span
                       className={`text-[10px] font-mono font-medium ${
                         isPositive ? 'text-[#089981]' : 'text-[#f23645]'
                       }`}
                     >
-                      {isPositive ? '+' : ''}
-                      {asset.changePercent24h.toFixed(2)}%
+                      {verified ? `${isPositive ? '+' : ''}${asset.changePercent24h.toFixed(2)}%` : 'No verified quote'}
                     </span>
                   </div>
 
@@ -583,8 +658,8 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   <div className="col-span-3 flex flex-col items-end gap-1">
                     {renderExchangeBadge(asset.source || asset.exchange)}
                     <div className="flex items-center gap-1 text-[9px] text-[#787b86]">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#089981]" />
-                      <span>REAL-TIME</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${verified ? 'bg-[#089981]' : 'bg-[#787b86]'}`} />
+                      <span>{verified ? 'LIVE' : 'UNVERIFIED'}</span>
                     </div>
                   </div>
                 </div>
@@ -593,9 +668,16 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
           )}
         </div>
 
+        {filteredAssets.length > resultLimit && (
+          <button onClick={() => setResultLimit(v => v + 150)} className="py-2 text-xs font-medium text-[#8cadff] hover:text-white bg-[#1a2030] border-t border-[#2a2e39]">
+            Show 150 more · {Math.max(0, filteredAssets.length - resultLimit).toLocaleString()} remaining
+          </button>
+        )}
         {/* Bottom Footer: TradingView style status & keyboard shortcuts */}
         <div className="px-5 py-2.5 border-t border-[#2a2e39]/60 flex items-center justify-between text-[11px] text-[#787b86] bg-[#171b26]">
-          <span>Connected to real-time market data providers</span>
+          <span>{isDiscovering ? 'Discovering public exchange markets…' : `${allAssets.length.toLocaleString()} instruments indexed`}
+            {discoveryErrors.length ? ` · ${discoveryErrors.length} providers unavailable` : ''}
+            {' · Unverified quotes are intentionally hidden'}</span>
           <div className="flex items-center gap-3 text-[10px]">
             <span><kbd className="px-1 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↑</kbd> <kbd className="px-1 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↓</kbd> navigate</span>
             <span><kbd className="px-1.5 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↵</kbd> select</span>
