@@ -388,7 +388,7 @@ export async function fetchHistoricalData(asset: Asset, timeframe: Timeframe): P
       const perpSym = getKrakenFuturesSymbol(asset.symbol) || (asset.symbol.includes('ARB') ? 'PF_ARBUSD' : asset.symbol);
       const resolution = KRAKEN_FUTURES_RESOLUTION[timeframe] || '1h';
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const res = await fetch(
         `/api/kraken/futures-chart?symbol=${encodeURIComponent(perpSym)}&resolution=${encodeURIComponent(resolution)}`,
@@ -421,7 +421,7 @@ export async function fetchHistoricalData(asset: Asset, timeframe: Timeframe): P
       const cleanSym = asset.symbol.toUpperCase().replace('.P', '').trim();
       const interval = KRAKEN_INTERVAL[timeframe] || 60;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
 
       const res = await fetch(
         `/api/kraken/ohlc?pair=${encodeURIComponent(cleanSym)}&interval=${encodeURIComponent(interval)}`,
