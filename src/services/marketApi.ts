@@ -8,7 +8,7 @@ export async function marketFetch(input: string, init?: RequestInit): Promise<Re
   if (url.pathname === '/api/kraken/futures-chart') {
     const symbol = url.searchParams.get('symbol') || '';
     const resolution = url.searchParams.get('resolution') || '1h';
-    upstream = `https://futures.kraken.com/api/charts/v1/trade/${encodeURIComponent(symbol)}/${encodeURIComponent(resolution)}`;
+    upstream = `https://candlelight-market-api.vercel.app/api/history?symbol=${encodeURIComponent(symbol)}&resolution=${encodeURIComponent(resolution)}`;
     parse = data => (data.candles || []).map((c: any) => ({
       time: Math.floor(Number(c.time) / 1000), open: Number(c.open), high: Number(c.high),
       low: Number(c.low), close: Number(c.close), volume: Number(c.volume) || 0,
