@@ -8,7 +8,7 @@ GitHub is the source of truth. The `Deploy Candlelight` workflow type-checks and
 
 ## Current scope
 
-Charts, drawing tools, indicators, alerts, journal examples, paper positions, and browser-based conditional order simulation. Kraken history and public streaming connections work directly from the browser. Market coverage, interval aggregation, and candle accuracy remain under validation. Some account, journal, alert, news, and watchlist values are demonstration or snapshot data. No broker account or real-money execution is connected. Bots and alerts cannot run reliably while this browser page is closed.
+Charts, drawing tools, indicators, alerts, journal examples, paper positions, and browser-based conditional order simulation. Public WebSockets stream directly to the browser. Kraken futures history uses a read-only Vercel function at https://candlelight-market-api.vercel.app/api/history because Kraken blocks direct cross-origin browser history requests. Its source lives in services/market-proxy; it has no broker keys or order endpoints. The function is deployed separately from the Pages workflow. Market coverage, interval aggregation, and candle accuracy remain under validation. Some account, journal, alert, news, and watchlist values are demonstration or snapshot data. No broker account or real-money execution is connected. Bots and alerts cannot run reliably while this browser page is closed.
 
 Fabricated history, fallback heartbeat ticks, generated depth, and seeded tape entries have been removed from the active market-data path. Missing feeds do not generate fake candles. Derivatives history never silently falls back to spot history. The preview does not provide equities/forex data through the old AI Studio-only proxy.
 
