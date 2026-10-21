@@ -702,15 +702,9 @@ export default function App() {
       }
     });
 
-    // 3. Initialize order book and recent trades
-    const initialBook = generateOrderBook(activeAsset.price);
-    setOrderBook(initialBook);
-
-    const initialTrades: TradeItem[] = [];
-    for (let i = 0; i < 20; i++) {
-      initialTrades.push(generateLiveTrade(activeAsset.price));
-    }
-    setRecentTrades(initialTrades);
+    // Order depth and tape require real subscribed feeds; do not seed fabricated data.
+    setOrderBook({ bids: [], asks: [] });
+    setRecentTrades([]);
 
     // 4. Subscribe to Real Market Data (Binance WebSocket for crypto, high-precision feed for others)
     const unsubscribe = subscribeRealMarketData(activeAsset, activeTimeframe, {
@@ -1102,6 +1096,10 @@ export default function App() {
       id="tradingview-app-root"
       className="flex flex-col h-screen w-screen overflow-hidden bg-[#131722] text-[#d1d4dc] font-sans antialiased"
     >
+      <div role="note" className="shrink-0 bg-[#202534] px-3 py-1 text-[11px] text-[#c5c9d4]">
+        <strong>Candlelight</strong> · Research preview · Paper trading only · Feed coverage and candle accuracy under validation. Depth unavailable. Some journal/account examples are demo data.
+        {' '}Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer" className="underline">TradingView Lightweight Charts</a>.
+      </div>
       {/* Top Navbar */}
       <TopNavbar
         activeAsset={activeAsset}
