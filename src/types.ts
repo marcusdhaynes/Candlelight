@@ -41,6 +41,7 @@ export interface Asset {
   /** Specific DEX pool locator; never infer this from a shared ticker. */
   pairAddress?: string;
   chainId?: string;
+  feedSymbol?: string; // Provider-native market identifier (e.g., Hyperliquid coin)
 }
 
 export type Timeframe =
