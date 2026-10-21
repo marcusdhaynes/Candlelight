@@ -56,12 +56,58 @@ async function bybit(): Promise<Asset[]> {
   if (!out.length) throw new Error('Instruments blocked or unavailable');
   return out;
 }
+async function hyperliquidInfo(type: string): Promise<any> {
+  const response = await fetch('https://api.hyperliquid.xyz/info', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type }), signal: AbortSignal.timeout(9000),
+  });
+  if (!response.ok) throw new Error('Hyperliquid HTTP ' + response.status);
+  return response.json();
+}
+async function hyperliquid(): Promise<Asset[]> {
+  const [perps, spots] = await Promise.allSettled([
+    hyperliquidInfo('metaAndAssetCtxs'), hyperliquidInfo('spotMetaAndAssetCtxs')]);
+  const out: Asset[] = [], source = 'Hyperliquid (Hyperliquid)';
+  if (perps.status === 'fulfilled' && Array.isArray(perps.value)) {
+    const [meta, ctxs] = perps.value;
+    (meta.universe || []).forEach((p: any, i: number) => {
+      const ctx = ctxs?.[i], price = Number(ctx?.markPx || ctx?.midPx);
+      if (!p.name) return;
+      const a = mk(p.name + '-USD.P', p.name, 'USD', source, 'swap');
+      a.feedSymbol = p.name; a.isCex = false; a.isDefi = true;
+      if (Number.isFinite(price) && price > 0) {
+        a.price = price; a.quoteStatus = 'live'; a.quoteUpdatedAt = Date.now();
+        a.volume24h = String(ctx?.dayNtlVlm || '—');
+      }
+      out.push(a);
+    });
+  }
+  if (spots.status === 'fulfilled' && Array.isArray(spots.value)) {
+    const [meta, ctxs] = spots.value;
+    (meta.universe || []).forEach((p: any, i: number) => {
+      const ctx = ctxs?.[i], price = Number(ctx?.midPx || ctx?.markPx);
+      if (!p.name) return;
+      const [base, quote = 'USDC'] = p.name.split('/');
+      const a = mk(p.name, base, quote, source, 'spot');
+      a.feedSymbol = p.name === 'PURR/USDC' ? p.name : '@' + i;
+      a.isCex = false; a.isDefi = true;
+      if (Number.isFinite(price) && price > 0) {
+        a.price = price; a.quoteStatus = 'live'; a.quoteUpdatedAt = Date.now();
+        a.volume24h = String(ctx?.dayNtlVlm || '—');
+      }
+      out.push(a);
+    });
+  }
+  if (!out.length) throw new Error('Hyperliquid API unavailable');
+  return out;
+}
 const providers: Array<[string, () => Promise<Asset[]>]> = [
   ['Binance', () => binance('Binance')],
   ['Binance.US', () => binance('Binance.US')],
   ['Coinbase', coinbase],
   ['OKX', okx],
   ['Bybit', bybit],
+  ['Hyperliquid (Hyperliquid)', hyperliquid],
 ];
 let cache: { at: number; results: ProviderResponse[] } | null = null;
 /** Fetch only real public instrument metadata; no invented listings or prices. */
