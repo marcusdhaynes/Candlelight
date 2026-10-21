@@ -52,26 +52,38 @@ import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
 
+const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
 export default function App() {
   // State: Assets & Selection (Default to PF_ARBUSD / ARBUSD perpetual matching screenshot)
   const [assets, setAssets] = useState<Asset[]>(() => {
     const saved = localStorage.getItem('tv_assets_v4');
+    let base = INITIAL_ASSETS;
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 500) {
-          return parsed;
-        }
-      } catch {
-        // fallback
-      }
+        if (Array.isArray(parsed) && parsed.length > 500) base = parsed;
+      } catch { /* keep bundled catalog */ }
     }
-    return INITIAL_ASSETS;
+    try {
+      const custom = JSON.parse(localStorage.getItem('candlelight_saved_markets_v1') || '[]') as Asset[];
+      if (!Array.isArray(custom)) return base;
+      const seen = new Set(base.map(assetIdentity));
+      return [...base, ...custom.filter(a => {
+        const id = assetIdentity(a);
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })];
+    } catch { return base; }
   });
   const [activeAsset, setActiveAsset] = useState<Asset>(() => {
     const savedSym = localStorage.getItem('tv_active_symbol');
+    const savedVenue = localStorage.getItem('candlelight_active_source');
+    const savedType = localStorage.getItem('candlelight_active_market_type');
     if (savedSym) {
-      const found = assets.find((a) => a.symbol === savedSym);
+      const exact = assets.find(a => a.symbol === savedSym && (a.source || a.exchange) === savedVenue && (a.marketType || '') === savedType);
+      if (exact) return exact;
+      const found = assets.find(a => a.symbol === savedSym);
       if (found) return found;
     }
     return INITIAL_ASSETS[0];
@@ -595,6 +607,8 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('tv_active_symbol', activeAsset.symbol);
+    localStorage.setItem('candlelight_active_source', activeAsset.source || activeAsset.exchange);
+    localStorage.setItem('candlelight_active_market_type', activeAsset.marketType || '');
   }, [activeAsset.symbol]);
 
   useEffect(() => {
@@ -653,7 +667,7 @@ export default function App() {
       fetchRealTicker24h(asset).then((ticker) => {
         if (ticker) {
           setAssets((prev) =>
-            prev.map((a) => (a.symbol === asset.symbol ? { ...a, ...ticker } : a))
+            prev.map((a) => (assetIdentity(a) === assetIdentity(asset) ? { ...a, ...ticker } : a))
           );
         }
       });
@@ -681,7 +695,7 @@ export default function App() {
           ...ticker,
         }));
         setAssets((prev) =>
-          prev.map((a) => (a.symbol === activeAsset.symbol ? { ...a, ...ticker } : a))
+          prev.map((a) => (assetIdentity(a) === assetIdentity(activeAsset) ? { ...a, ...ticker } : a))
         );
       }
     });
@@ -720,7 +734,9 @@ export default function App() {
             change24h: updatedChange,
             changePercent24h: updatedChangePct,
             high24h: Math.max(prev.high24h, newPrice),
-            low24h: Math.min(prev.low24h, newPrice),
+            low24h: prev.low24h > 0 ? Math.min(prev.low24h, newPrice) : newPrice,
+            quoteStatus: 'live',
+            quoteUpdatedAt: now,
           };
         });
 
@@ -731,12 +747,14 @@ export default function App() {
           // Update in assets array
           setAssets((prev) =>
             prev.map((a) =>
-              a.symbol === activeAsset.symbol
+              assetIdentity(a) === assetIdentity(activeAsset)
                 ? {
                     ...a,
                     price: newPrice,
                     high24h: Math.max(a.high24h, newPrice),
-                    low24h: Math.min(a.low24h, newPrice),
+                    low24h: a.low24h > 0 ? Math.min(a.low24h, newPrice) : newPrice,
+                    quoteStatus: 'live',
+                    quoteUpdatedAt: now,
                   }
                 : a
             )
@@ -812,7 +830,7 @@ export default function App() {
       isCancelled = true;
       unsubscribe();
     };
-  }, [activeAsset.symbol, activeTimeframe]);
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe]);
 
   // Handle Close Position
   const handleClosePosition = (id: string) => {
@@ -1057,6 +1075,14 @@ export default function App() {
 
   // Asset Selection
   const handleSelectAsset = (selected: Asset) => {
+    setAssets(prev => prev.some(a => assetIdentity(a) === assetIdentity(selected)) ? prev : [...prev, selected]);
+    try {
+      const custom = JSON.parse(localStorage.getItem('candlelight_saved_markets_v1') || '[]') as Asset[];
+      if (!custom.some(a => assetIdentity(a) === assetIdentity(selected))) {
+        localStorage.setItem('candlelight_saved_markets_v1', JSON.stringify([...custom, selected].slice(-100)));
+      }
+    } catch { /* persistence is optional */ }
+    setMarketStatus({ connected: false, provider: 'Connecting to ' + (selected.source || selected.exchange), latencyMs: 0 });
     setActiveAsset(selected);
   };
 
@@ -1081,7 +1107,7 @@ export default function App() {
       className="flex flex-col h-screen w-screen overflow-hidden bg-[#131722] text-[#d1d4dc] font-sans antialiased"
     >
       <div role="note" className="shrink-0 bg-[#202534] px-3 py-1 text-[11px] text-[#c5c9d4]">
-        <strong>Candlelight</strong> · {isLoadingCandles ? 'Loading history…' : `${candles.length.toLocaleString()} candles`} · Research preview · Paper trading only · Feed coverage and candle accuracy under validation. Depth unavailable. Some journal/account examples are demo data.
+        <strong>Candlelight</strong> · {isLoadingCandles ? 'Loading history…' : `${candles.length.toLocaleString()} candles`} · Research preview · Paper trading only · Free public feeds where accessible. Quotes are unverified until received; some exchanges need licensed data. Depth unavailable. Some journal/account examples are demo data.
         {' '}Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer" className="underline">TradingView Lightweight Charts</a>.
       </div>
       {/* Top Navbar */}
