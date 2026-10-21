@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { MARKET_SOURCES, sourceInfo } from '../data/marketSources';
 import { discoverPublicMarkets } from '../services/marketDiscovery';
 import { fetchRealTicker24h } from '../services/dataFeed';
+import { searchDexPools } from '../services/dexPools';
 import { Asset, AssetCategory } from '../types';
 import { Search, X, ChevronDown, Check } from 'lucide-react';
 
@@ -43,6 +44,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
 
   const [sourceSearch, setSourceSearch] = useState('');
   const [discovered, setDiscovered] = useState<Asset[]>([]);
+  const [dexAssets, setDexAssets] = useState<Asset[]>([]);
   const [discoveryErrors, setDiscoveryErrors] = useState<string[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [resultLimit, setResultLimit] = useState(150);
@@ -62,15 +64,27 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
     return () => { cancelled = true; };
   }, [isOpen]);
 
+  useEffect(() => {
+    const query = deferredSearch.trim();
+    if (!isOpen || query.length < 2 || !['all','crypto'].includes(selectedCategory) ||
+        selectedExchangeType === 'cex') { setDexAssets([]); return; }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchDexPools(query).then(found => { if (!cancelled) setDexAssets(found); })
+        .catch(() => { if (!cancelled) setDexAssets([]); });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [isOpen, deferredSearch, selectedCategory, selectedExchangeType]);
+
   const allAssets = useMemo(() => {
     const seen = new Set<string>();
-    return [...assets, ...discovered].filter(a => {
+    return [...assets, ...discovered, ...dexAssets].filter(a => {
       const key = quoteKey(a);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-  }, [assets, discovered]);
+  }, [assets, discovered, dexAssets]);
 
   useEffect(() => { setResultLimit(150); }, [selectedCategory, selectedSource, selectedType, selectedExchangeType, deferredSearch]);
 
@@ -175,7 +189,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    const leaders = filteredAssets.slice(0, 12).filter(a => ['Kraken', 'Kraken Futures', 'Coinbase', 'Binance', 'Binance.US', 'OKX', 'Bybit'].includes(a.source || a.exchange));
+    const leaders = filteredAssets.slice(0, 12).filter(a => a.pairAddress || ['Kraken', 'Kraken Futures', 'Coinbase', 'Binance', 'Binance.US', 'OKX', 'Bybit'].includes(a.source || a.exchange));
     const refresh = async () => {
       const updates = await Promise.all(leaders.map(async a => {
         const quote = await fetchRealTicker24h(a).catch(() => null);
@@ -602,7 +616,9 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
           ) : (
             filteredAssets.slice(0, resultLimit).map((originalAsset) => {
               const asset = { ...originalAsset, ...(liveQuotes[quoteKey(originalAsset)] || {}) };
-              const verified = asset.quoteStatus === 'live' && !!asset.quoteUpdatedAt && Date.now() - asset.quoteUpdatedAt < 60_000;
+              const verified = (asset.quoteStatus === 'live' || asset.quoteStatus === 'delayed') &&
+                !!asset.quoteUpdatedAt && Date.now() - asset.quoteUpdatedAt < 90_000;
+              const isStreaming = asset.quoteStatus === 'live' && verified;
               const isCurrent = asset.symbol === currentSymbol;
               const isPositive = asset.changePercent24h >= 0;
 
@@ -662,8 +678,8 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   <div className="col-span-3 flex flex-col items-end gap-1">
                     {renderExchangeBadge(asset.source || asset.exchange)}
                     <div className="flex items-center gap-1 text-[9px] text-[#787b86]">
-                      <span className={`w-1.5 h-1.5 rounded-full ${verified ? 'bg-[#089981]' : 'bg-[#787b86]'}`} />
-                      <span>{verified ? 'LIVE' : 'UNVERIFIED'}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isStreaming ? 'bg-[#089981]' : 'bg-[#787b86]'}`} />
+                      <span>{isStreaming ? 'LIVE' : verified ? 'SNAPSHOT' : 'UNVERIFIED'}</span>
                     </div>
                   </div>
                 </div>
