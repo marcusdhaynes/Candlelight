@@ -609,7 +609,7 @@ export default function App() {
     localStorage.setItem('tv_active_symbol', activeAsset.symbol);
     localStorage.setItem('candlelight_active_source', activeAsset.source || activeAsset.exchange);
     localStorage.setItem('candlelight_active_market_type', activeAsset.marketType || '');
-  }, [activeAsset.symbol]);
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType]);
 
   useEffect(() => {
     localStorage.setItem('tv_timeframe', activeTimeframe);
