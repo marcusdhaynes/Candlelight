@@ -45,5 +45,28 @@ approx(exitValueFromPrice(100,10,'Long','tp','money',105,0.01,10000),50);
 approx(exitPriceFromValue(100,10,'Short','sl','money',12,0.01,10000)!,101.2);
 approx(exitPriceFromValue(100,10,'Long','tp','ticks',25,0.01,10000)!,100.25);
 approx(exitPriceFromValue(100,10,'Long','tp','balance',1,0.01,10000)!,110);
+const layered=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:10,tp:110,sl:90,
+  takeProfitLevels:[{price:110,sharePercent:60},{price:120,sharePercent:40}],
+},now);
+assert.equal(layered.positions[0].tpLevels?.length,2);
+const firstPartial=evaluatePaperOrders(layered,fresh(110,now+1000),now+1000);
+assert.equal(firstPartial.positions.length,1);
+approx(firstPartial.positions[0].qty,4);
+assert.equal(firstPartial.positions[0].tpLevels?.length,1);
+approx(firstPartial.account.realizedPnL,60);
+const lastPartial=evaluatePaperOrders(firstPartial,fresh(120,now+2000),now+2000);
+assert.equal(lastPartial.positions.length,0);
+approx(lastPartial.account.realizedPnL,140);
+const protectedMulti=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:10,tp:110,sl:90,
+  takeProfitLevels:[{price:110,sharePercent:60},{price:120,sharePercent:40}],
+},now);
+const stoppedMulti=evaluatePaperOrders(protectedMulti,fresh(89,now+1000),now+1000);
+assert.equal(stoppedMulti.positions.length,0);
+approx(stoppedMulti.account.realizedPnL,-110);
+assert.throws(()=>submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:1,tp:110,takeProfitLevels:[{price:110,sharePercent:110}],
+},now),/allocate exactly 100/);
 assert.equal(exitPriceFromValue(100,0,'Long','tp','money',10,.01,10000),undefined);
 console.log('Paper order tests passed: market/limit/stop, margin reservations, fills, expiry, cancellation, both sides and exit conversions.');
