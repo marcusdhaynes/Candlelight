@@ -231,8 +231,14 @@ export default function App() {
     const keys=heldMarketKeys.split('~').filter(Boolean);
     if(!keys.length)return;
     let cancelled=false;
+    let cursor=0;
     const refresh=async()=>{
-      const pairs=keys.map(k=>{const [symbol,exchange]=k.split('|');
+      // Rotate through independent markets to respect public API rate limits
+      // while supporting arbitrarily many saved paper accounts.
+      const candidates=keys.slice(cursor,cursor+16);
+      cursor=(cursor+16)%keys.length;
+      const batch=candidates.length?candidates:keys.slice(0,16);
+      const pairs=batch.map(k=>{const [symbol,exchange]=k.split('|');
         return assets.find(a=>a.symbol===symbol&&(a.source||a.exchange)===exchange);
       }).filter((a):a is Asset=>Boolean(a));
       const quotes=await Promise.all(pairs.map(async a=>{
