@@ -193,6 +193,9 @@ export interface MarketNews {
   url: string;
 }
 
+export interface PaperTargetLevel {
+  id:string;price:number;quantity:number;
+}
 export interface PaperPosition {
   id: string;
   symbol: string;
@@ -210,6 +213,7 @@ export interface PaperPosition {
   lastMarkedAt?: number;
   tp?: number;
   sl?: number;
+  tpLevels?:PaperTargetLevel[];
 }
 
 export interface PaperAccount {
