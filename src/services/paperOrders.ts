@@ -1,7 +1,7 @@
 import type {Asset} from '../types';
 import {
   type PaperPortfolio,accountLeverage,isFreshPaperQuote,paperCommission,
-  placePaperPosition,markPaperPositions,recalculatePaperPortfolio,
+  placePaperPosition,markPaperPositions,recalculatePaperPortfolio,enableTrailingPaperStop,
 } from './paperTrading';
 
 export type PaperOrderSide='Long'|'Short';
@@ -14,6 +14,7 @@ export interface PaperEntryOrder {
   qty:number;price:number;currency:string;
   assetCategory:Asset['category'];marketType:Asset['marketType'];
   leverage:number;tp?:number;sl?:number;
+  trailingStopPercent?:number;
   takeProfitLevels?:PaperPartialTarget[];
   createdAt:number;expiresAt?:number;
   status:'pending';
@@ -22,6 +23,7 @@ export interface PaperPartialTarget {price:number;sharePercent:number}
 export interface PaperOrderRequest {
   side:PaperOrderSide;kind:PaperOrderKind;qty:number;
   price?:number;tp?:number;sl?:number;timeInForce?:PaperTimeInForce;
+  trailingStopPercent?:number;
   takeProfitLevels?:PaperPartialTarget[];
 }
 const finitePositive=(n:number)=>Number.isFinite(n)&&n>0;
@@ -52,6 +54,10 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
     throw new Error('Take-profit price must be on the profitable side of entry.');
   if(request.sl!==undefined&&(!finitePositive(request.sl)||(request.side==='Long'?request.sl>=price:request.sl<=price)))
     throw new Error('Stop-loss price must be on the protective side of entry.');
+  if(request.trailingStopPercent!==undefined &&
+    (!Number.isFinite(request.trailingStopPercent) ||
+     request.trailingStopPercent<=0 || request.trailingStopPercent>=100))
+    throw new Error('Trailing stop must be greater than 0% and less than 100%.');
   if(request.takeProfitLevels?.length){
     const sum=request.takeProfitLevels.reduce((n,v)=>n+v.sharePercent,0);
     if(Math.abs(sum-100)>0.001)throw new Error('Take-profit levels must allocate exactly 100% of the position.');
@@ -65,6 +71,10 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
   const required=request.qty*price/leverage+paperCommission(p.settings,a,request.qty,price);
   if(required>cash+1e-8)throw new Error('Insufficient free margin after accounting for pending orders and commissions.');
   return {leverage,price};
+}
+function applyTrailingStop(p:PaperPortfolio,percent:number|undefined):PaperPortfolio {
+  if(percent===undefined || !p.positions.length) return p;
+  return enableTrailingPaperStop(p,p.positions[0].id,percent);
 }
 function applyPartialTargets(p:PaperPortfolio,levels:PaperPartialTarget[]|undefined):PaperPortfolio{
   if(!levels?.length||!p.positions.length)return p;
@@ -82,14 +92,17 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
     // A marketable limit fills immediately at the observed quote, never at a
     // worse price than the limit. All fills remain explicitly simulated.
     const filled=placePaperPosition(p,a,request.side,request.qty,leverage,request.tp,request.sl,now);
-    return withOrderReservations(applyPartialTargets(filled,request.takeProfitLevels));
+    return withOrderReservations(applyTrailingStop(
+      applyPartialTargets(filled,request.takeProfitLevels),request.trailingStopPercent));
   }
   const ttl=request.timeInForce==='Day'?86400000:request.timeInForce==='Week'?604800000:undefined;
   const order:PaperEntryOrder={
     id:'pending-'+now+'-'+Math.random().toString(36).slice(2,9),
     symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind,
     qty:request.qty,price,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
-    leverage,tp:request.tp,sl:request.sl,takeProfitLevels:request.takeProfitLevels,createdAt:now,
+    leverage,tp:request.tp,sl:request.sl,
+    trailingStopPercent:request.trailingStopPercent,
+    takeProfitLevels:request.takeProfitLevels,createdAt:now,
     expiresAt:ttl?now+ttl:undefined,status:'pending',
   };
   return withOrderReservations({...p,pendingOrders:[...pendingFor(p),order]});
@@ -118,8 +131,10 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
     try{
       const synthetic={...a,price:fillPrice,quoteUpdatedAt:at,quoteStatus:'live' as const};
       // Attached exits must be valid against the actual executable fill.
-      next=withOrderReservations(applyPartialTargets(placePaperPosition(without,synthetic,order.side,
-        order.qty,order.leverage,order.tp,order.sl,at),order.takeProfitLevels));
+      next=withOrderReservations(applyTrailingStop(
+        applyPartialTargets(placePaperPosition(without,synthetic,order.side,
+          order.qty,order.leverage,order.tp,order.sl,at),order.takeProfitLevels),
+        order.trailingStopPercent));
     }catch{
       // Keep the pending instruction intact if the wallet cannot support
       // execution at the observed price or the bracket becomes invalid.
