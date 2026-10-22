@@ -220,6 +220,29 @@ export default function App() {
   });
   const {account:paperAccount, positions:paperPositions, fills:paperFills} = paperPortfolio;
   const [paperError,setPaperError] = useState('');
+  // Mark every open position from its own venue even when another chart is active.
+  // Public quote polling is limited to open paper instruments; no synthetic fills.
+  const heldMarketKeys = [...new Set(paperPositions.map(p=>p.symbol+'|'+p.exchange))].join('~');
+  useEffect(() => {
+    const keys=heldMarketKeys.split('~').filter(Boolean);
+    if (!keys.length) return;
+    let cancelled=false;
+    const refresh=async () => {
+      const candidateAssets=keys.map(k=>{
+        const [symbol,exchange]=k.split('|');
+        return assets.find(a=>a.symbol===symbol&&(a.source||a.exchange)===exchange);
+      }).filter((a):a is Asset=>Boolean(a)).slice(0,20);
+      const quotes=await Promise.all(candidateAssets.map(async a=>{
+        const ticker=await fetchRealTicker24h(a).catch(()=>null);
+        return ticker?.quoteStatus==='live'?{...a,...ticker}:null;
+      }));
+      if (cancelled) return;
+      setPaperPortfolio(prev=>quotes.reduce((p,quote)=>quote?markPaperPositions(p,quote):p,prev));
+    };
+    void refresh();
+    const timer=window.setInterval(()=>{void refresh();},20000);
+    return ()=>{cancelled=true;window.clearInterval(timer);};
+  },[heldMarketKeys]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
   const [isBottomTradingExpanded, setIsBottomTradingExpanded] = useState(false);
 
