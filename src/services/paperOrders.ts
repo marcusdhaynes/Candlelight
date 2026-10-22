@@ -46,8 +46,6 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
   const leverage=accountLeverage(p.settings,a);
   if(request.kind!=='market'&&!finitePositive(request.price??NaN))throw new Error('Enter a valid limit/stop trigger price.');
   const price=request.kind==='market'?a.price:request.price!;
-  if(request.kind==='limit'&&(request.side==='Long'?price>=a.price:price<=a.price))
-    throw new Error('Limit entry must be below current price to buy or above to sell. Use Market for immediately executable orders.');
   if(request.kind==='stop'&&(request.side==='Long'?price<=a.price:price>=a.price))
     throw new Error('Stop entry must be above current price to buy or below to sell.');
   if(request.tp!==undefined&&(!finitePositive(request.tp)||(request.side==='Long'?request.tp<=price:request.tp>=price)))
@@ -78,9 +76,11 @@ function applyPartialTargets(p:PaperPortfolio,levels:PaperPartialTarget[]|undefi
 }
 export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequest,now=Date.now()):PaperPortfolio{
   const {leverage,price}=withOrderValidation(p,a,request,now);
-  if(request.kind==='market'){
-    // Active reservations are removed from the free margin calculation, but
-    // market executions must also pass the basic portfolio accounting guard.
+  const marketableLimit=request.kind==='limit' &&
+    (request.side==='Long'?price>=a.price:price<=a.price);
+  if(request.kind==='market'||marketableLimit){
+    // A marketable limit fills immediately at the observed quote, never at a
+    // worse price than the limit. All fills remain explicitly simulated.
     const filled=placePaperPosition(p,a,request.side,request.qty,leverage,request.tp,request.sl,now);
     return withOrderReservations(applyPartialTargets(filled,request.takeProfitLevels));
   }
