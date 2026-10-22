@@ -1,4 +1,5 @@
 import type { Asset, PaperAccount, PaperPosition } from '../types';
+import type { PaperEntryOrder } from './paperOrders';
 
 export const PAPER_STARTING_BALANCE = 10000;
 export type PaperCommission = { enabled:boolean; mode:'fixed'|'percent'; amount:number };
@@ -57,6 +58,7 @@ export interface PaperPortfolio {
   settings: PaperSettings;
   positions: PaperPosition[];
   fills: PaperFill[];
+  pendingOrders?: PaperEntryOrder[];
 }
 export function emptyPaperPortfolio(settings:PaperSettings=DEFAULT_PAPER_SETTINGS,name='Primary 001'): PaperPortfolio {
   const safe=normalizePaperSettings(settings);
@@ -67,7 +69,7 @@ export function emptyPaperPortfolio(settings:PaperSettings=DEFAULT_PAPER_SETTING
     accountMargin: 0, availableFunds: safe.startingBalance,
     ordersMargin: 0, marginBuffer: 100,
   };
-  return { account, settings:safe, positions: [], fills: [] };
+  return { account, settings:safe, positions: [], fills: [], pendingOrders: [] };
 }
 export const positionPnL = (p: PaperPosition, marketPrice: number) =>
   (p.side === 'Long' ? 1 : -1) * (marketPrice - p.entryPrice) * p.qty;
