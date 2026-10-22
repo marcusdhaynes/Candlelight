@@ -74,4 +74,36 @@ assert.throws(()=>submitPaperOrder(empty,asset,{
   side:'Long',kind:'market',qty:1,tp:110,takeProfitLevels:[{price:110,sharePercent:110}],
 },now),/allocate exactly 100/);
 assert.equal(exitPriceFromValue(100,0,'Long','tp','money',10,.01,10000),undefined);
+// Trailing stops must attach to both immediate and pending paper executions.
+const trailingOrder=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:2,trailingStopPercent:5},now);
+assert.equal(trailingOrder.positions[0].trailingPercent,5);
+approx(trailingOrder.positions[0].sl!,95);
+const movedUp=evaluatePaperOrders(trailingOrder,fresh(110,now+1000),now+1000);
+approx(movedUp.positions[0].sl!,104.5);
+const protectedLong=evaluatePaperOrders(movedUp,fresh(104,now+2000),now+2000);
+assert.equal(protectedLong.positions.length,0);
+const trailingShortOrder=submitPaperOrder(empty,asset,{
+  side:'Short',kind:'market',qty:2,trailingStopPercent:5},now);
+approx(trailingShortOrder.positions[0].sl!,105);
+const movedDown=evaluatePaperOrders(trailingShortOrder,fresh(80,now+1000),now+1000);
+approx(movedDown.positions[0].sl!,84);
+const protectedShort=evaluatePaperOrders(movedDown,fresh(85,now+2000),now+2000);
+assert.equal(protectedShort.positions.length,0);
+const deferredTrailing=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'limit',qty:2,price:95,trailingStopPercent:2,timeInForce:'GTC'},now);
+assert.equal(deferredTrailing.pendingOrders?.[0].trailingStopPercent,2);
+const triggeredTrailing=evaluatePaperOrders(deferredTrailing,fresh(93,now+1000),now+1000);
+assert.equal(triggeredTrailing.positions.length,1);
+approx(triggeredTrailing.positions[0].sl!,93*(1-.02));
+assert.equal(triggeredTrailing.positions[0].trailingAnchor,93);
+const bracketAndTrail=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:2,sl:98,trailingStopPercent:5},now);
+approx(bracketAndTrail.positions[0].sl!,98); // fixed SL is tighter initially
+const bracketNext=evaluatePaperOrders(bracketAndTrail,fresh(110,now+1000),now+1000);
+approx(bracketNext.positions[0].sl!,104.5);
+assert.throws(()=>submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:1,trailingStopPercent:0},now),/Trailing stop/);
+assert.throws(()=>submitPaperOrder(empty,asset,{
+  side:'Long',kind:'market',qty:1,trailingStopPercent:100},now),/Trailing stop/);
 console.log('Paper order tests passed: market/limit/stop, margin reservations, fills, expiry, cancellation, both sides and exit conversions.');
