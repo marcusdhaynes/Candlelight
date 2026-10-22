@@ -195,7 +195,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       </div>}
     </div>
     {accountDialog!==undefined&&createPortal(
-      <PaperAccountModal key={accountDialog??'new'} existing={paperAccounts.find(a=>a.id===accountDialog)}
+      <PaperAccountModal existing={paperAccounts.find(a=>a.id===accountDialog)}
         proposedName={`Primary ${String(paperAccounts.length+1).padStart(3,'0')}`}
         onClose={()=>setAccountDialog(undefined)}
         onSave={(name,settings)=>onSavePaperAccount(accountDialog,name,settings)}
