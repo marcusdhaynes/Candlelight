@@ -654,6 +654,13 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
 
         <div className="h-3 w-px bg-[#2a2e39] mx-0.5" />
 
+        {/* The blue price line is an optional display mode; keep Candles easy
+            to restore without silently overriding the user's saved preference. */}
+        {chartType !== 'candlestick' && <button type="button" onClick={()=>setChartType('candlestick')}
+          title="Restore standard candlestick chart"
+          className="rounded border border-[#3a5f91] bg-[#1b2c46] px-2 py-1 text-[11px] font-medium text-[#a8cbff] hover:bg-[#2d4362]">
+          Candles
+        </button>}
         {/* Chart Style Section: favorited chart type buttons + dropdown menu */}
         <div className="relative z-50 flex items-center gap-0.5">
           {visibleChartTypeButtons.map((tId) => {
@@ -982,11 +989,15 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${
-                marketStatus.connected ? 'bg-[#089981] animate-pulse' : 'bg-[#f23645]'
+                marketStatus.connected && !/REST polling|snapshot/i.test(marketStatus.provider)
+                  ? 'bg-[#089981] animate-pulse'
+                  : marketStatus.connected ? 'bg-[#dfa45a]' : 'bg-[#f23645]'
               }`}
             />
             <span className="font-mono text-[9px] font-bold text-[#d1d4dc]">
-              {marketStatus.connected ? 'LIVE' : 'SYNCING'}
+              {marketStatus.connected
+                ? /REST polling|snapshot/i.test(marketStatus.provider) ? 'POLLING' : 'LIVE'
+                : 'OFFLINE'}
             </span>
             {marketStatus.latencyMs > 0 && (
               <span className="text-[8px] text-[#787b86] font-mono">{marketStatus.latencyMs}ms</span>
