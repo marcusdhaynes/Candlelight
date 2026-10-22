@@ -41,6 +41,8 @@ import { BottomToolbar } from './components/BottomToolbar';
 import { BottomTradingPanel } from './components/BottomTradingPanel';
 import { PaperTradeTicket } from './components/PaperTradeTicket';
 import { PaperAccountModal } from './components/PaperAccountModal';
+import { SavedChartsModal } from './components/SavedChartsModal';
+import type { SavedChartIdea } from './services/savedCharts';
 import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,estimatePaperQty,withOrderReservations,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
@@ -297,6 +299,7 @@ export default function App() {
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isTradeJournalOpen, setIsTradeJournalOpen] = useState(false);
+  const [isSavedChartsOpen,setIsSavedChartsOpen]=useState(false);
   const [isPipActive, setIsPipActive] = useState(false);
   const pipRef = useRef<ChartPictureInPictureRef>(null);
 
@@ -1132,6 +1135,21 @@ export default function App() {
     }
   };
 
+  const handleRestoreSavedChart=(idea:SavedChartIdea)=>{
+    const match=assets.find(a=>a.symbol===idea.symbol&&(a.source||a.exchange)===idea.source);
+    if(!match){
+      setActiveNotification({id:String(Date.now()),
+        message:'Saved chart market is no longer in the current instrument directory.',
+        type:'info'});
+      return;
+    }
+    setActiveAsset(match);
+    setActiveTimeframe(idea.timeframe);
+    handleSetChartType(idea.chartType);
+    setDrawings(structuredClone(idea.drawings));
+    setIndicators(structuredClone(idea.indicators));
+    setActiveNotification({id:String(Date.now()),message:'Chart restored from local saved charts.',type:'info'});
+  };
   const activePosition =
     paperPositions.find(p => p.symbol===activeAsset.symbol &&
       p.exchange===(activeAsset.source||activeAsset.exchange)) || null;
@@ -1141,10 +1159,8 @@ export default function App() {
       id="tradingview-app-root"
       className="flex flex-col h-screen w-screen overflow-hidden bg-[#131722] text-[#d1d4dc] font-sans antialiased"
     >
-      <div role="note" className="shrink-0 bg-[#202534] px-3 py-1 text-[11px] text-[#c5c9d4]">
-        <strong>Candlelight</strong> · {isLoadingCandles ? 'Loading history…' : `${candles.length.toLocaleString()} candles`} · Research preview · Paper trading only · Free public feeds where accessible. Quotes are unverified until received; some exchanges need licensed data. Depth unavailable. Some journal/account examples are demo data.
-        {' '}Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer" className="underline">TradingView Lightweight Charts</a>.
-      </div>
+      {/* Keep the trading workspace full-size. Data/quote availability is shown at the
+          actual quote and order-entry controls; do not fill the header with demo copy. */}
       {/* Top Navbar */}
       <TopNavbar
         activeAsset={activeAsset}
@@ -1168,6 +1184,7 @@ export default function App() {
         onSelectQuickTool={(tool) => setActiveTool(tool)}
         activeTool={activeTool}
         onToggleTradingPanel={() => setIsTradeTicketOpen(prev=>!prev)}
+        onOpenSavedCharts={()=>setIsSavedChartsOpen(true)}
         marketStatus={marketStatus}
         currentTemplateId={currentTemplateId}
         onSelectTemplate={handleSelectTemplate}
@@ -1369,6 +1386,9 @@ export default function App() {
         setAlerts={setAlerts}
       />
 
+      <SavedChartsModal open={isSavedChartsOpen} onClose={()=>setIsSavedChartsOpen(false)}
+        asset={activeAsset} timeframe={activeTimeframe} chartType={chartType}
+        drawings={drawings} indicators={indicators} onRestore={handleRestoreSavedChart}/>
       <TradeJournalModal
         isOpen={isTradeJournalOpen}
         onClose={() => setIsTradeJournalOpen(false)}
