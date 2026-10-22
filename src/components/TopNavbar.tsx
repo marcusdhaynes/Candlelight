@@ -128,6 +128,7 @@ interface TopNavbarProps {
   onSelectQuickTool?: (tool: DrawingToolType) => void;
   activeTool?: DrawingToolType;
   onToggleTradingPanel?: () => void;
+  onOpenSavedCharts?: () => void;
   marketStatus?: { connected: boolean; provider: string; latencyMs: number };
   // Window Layout & Multi-Chart Management
   currentTemplateId: string;
@@ -173,6 +174,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
   onSelectQuickTool,
   activeTool,
   onToggleTradingPanel,
+  onOpenSavedCharts,
   marketStatus,
   currentTemplateId,
   onSelectTemplate,
@@ -1001,15 +1003,15 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
           <span>Trade</span>
         </button>
 
-        {/* Publish Button (High-contrast rounded pill with dark text, matching TradingView!) */}
+        {/* Local saved charts: never claim to publish or upload without a real backend. */}
         <button
-          id="publish-action-btn"
-          onClick={() => {
-            alert('Chart published to private ideas repository!');
-          }}
-          className="px-2.5 py-0.5 bg-white hover:bg-white/90 text-[#131722] font-bold rounded-full transition shadow-xs text-[11px]"
+          id="save-chart-action-btn"
+          type="button"
+          onClick={onOpenSavedCharts}
+          title="Save or restore charts privately in this browser"
+          className="px-3 py-1 bg-white hover:bg-white/90 text-[#131722] font-bold rounded-full transition shadow-xs text-xs"
         >
-          Publish
+          Save chart
         </button>
       </div>
     </header>
