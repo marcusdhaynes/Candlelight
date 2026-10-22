@@ -54,7 +54,7 @@ import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
-import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
+import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
@@ -866,9 +866,14 @@ export default function App() {
       setPaperError('');
     } catch(e) { setPaperError(e instanceof Error ? e.message : 'Close rejected'); }
   };
-  const handleEditPaperStops = (id:string,tp?:number,sl?:number) => {
-    try { setPaperPortfolio(updatePaperStops(paperPortfolio,id,tp,sl)); setPaperError(''); }
-    catch(e){ setPaperError(e instanceof Error ? e.message : 'Invalid stops'); }
+  const handleEditPaperStops = (id:string,tp?:number,sl?:number,trailing?:number|null) => {
+    try {
+      let next=updatePaperStops(paperPortfolio,id,tp,sl);
+      if(trailing===null)next=disableTrailingPaperStop(next,id);
+      else if(trailing!==undefined)next=enableTrailingPaperStop(next,id,trailing);
+      setPaperPortfolio(next);
+      setPaperError('');
+    }catch(e){setPaperError(e instanceof Error?e.message:'Invalid stops');}
   };
   const handleCancelPendingOrder=(id:string)=>{setPaperPortfolio(p=>cancelPaperOrder(p,id));setPaperError('');};
   const handleResetPaper = () => {
