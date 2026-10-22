@@ -22,7 +22,7 @@ export interface BottomTradingPanelProps {
   onOpenTicket:()=>void;
   pendingOrders:PaperEntryOrder[];
   onCancelPendingOrder:(id:string)=>void;
-  onEditPosition:(id:string,tp?:number,sl?:number)=>void;
+  onEditPosition:(id:string,tp?:number,sl?:number,trailing?:number|null)=>void;
   onResetPaper:()=>void; paperError:string; fills:PaperFill[];
   conditionalOrders:ConditionalOrder[];
   onOpenCreateConditionalOrder:(dep?:DependencyContext|null)=>void;
@@ -68,6 +68,8 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   const [editId,setEditId]=useState<string|null>(null);
   const [editTp,setEditTp]=useState('');
   const [editSl,setEditSl]=useState('');
+  const [editTrailingEnabled,setEditTrailingEnabled]=useState(false);
+  const [editTrailingPercent,setEditTrailingPercent]=useState('0.50');
   const live=isFreshPaperQuote(activeAsset);
   const exportCsv=()=>{
     const rows=[['Time','Market','Source','Action','Quantity','Price','Fee','Realized PnL'],...fills.map(f=>
@@ -150,16 +152,41 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           <td>{amount(p.qty)}</td><td>{amount(p.entryPrice)}</td><td>{amount(p.currentPrice)}<small className="block text-[#818999]">{p.lastMarkedAt&&Date.now()-p.lastMarkedAt>30000?'Stale':'Observed'}</small></td>
           <td>{p.leverage||1}×</td><td>{cash(p.qty*p.entryPrice/(p.leverage||1))}</td>
           <td className={p.unrealizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(p.unrealizedPnL)} ({p.unrealizedPnLPct.toFixed(2)}%)</td>
-          <td>{p.tp??'—'} / {p.sl??'—'}</td><td className="flex items-center gap-2 py-2">
+          <td>
+            {p.tp??'—'} / {p.sl??'—'}
+            {p.trailingPercent&&<small className="block text-[#88b2fa]">
+              Trailing {p.trailingPercent}% · {p.side==='Long'?'peak':'trough'} {amount(p.trailingAnchor??p.entryPrice)}
+            </small>}
+          </td><td className="flex items-center gap-2 py-2">
             <button title="Add conditional order" onClick={()=>onOpenCreateConditionalOrder({type:'position',label:p.symbol+' position'})}><Zap size={13}/></button>
-            <button title="Edit TP and SL" onClick={()=>{setEditId(editId===p.id?null:p.id);setEditTp(p.tp?.toString()||'');setEditSl(p.sl?.toString()||'');}}><Edit2 size={13}/></button>
+            <button title="Edit TP and SL" onClick={()=>{setEditId(editId===p.id?null:p.id);
+              setEditTp(p.tp?.toString()||'');setEditSl(p.sl?.toString()||'');
+              setEditTrailingEnabled(!!p.trailingPercent);
+              setEditTrailingPercent(p.trailingPercent?.toString()||'0.50');}}><Edit2 size={13}/></button>
             <button title="Close at latest verified price" className="text-[#f77f90]" onClick={()=>onClosePosition(p.id)}><X size={13}/></button>
           </td>
         </tr>
         {editId===p.id&&<tr className="bg-[#202a36]"><td colSpan={10} className="p-2">
           <label>Take profit <input type="number" step="any" min="0" value={editTp} onChange={e=>setEditTp(e.target.value)} className="ml-1 w-24 bg-[#0c1320] rounded px-2"/></label>
           <label className="ml-4">Stop loss <input type="number" step="any" min="0" value={editSl} onChange={e=>setEditSl(e.target.value)} className="ml-1 w-24 bg-[#0c1320] rounded px-2"/></label>
-          <button className="ml-3 text-[#7ea7ff]" onClick={()=>{onEditPosition(p.id,editTp?Number(editTp):undefined,editSl?Number(editSl):undefined);setEditId(null);}}>Save stops</button>
+          <label className="ml-4 inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" aria-label="Trail stop loss for open position"
+              checked={editTrailingEnabled} onChange={e=>setEditTrailingEnabled(e.target.checked)}
+              className="accent-[#789ffe]"/>
+            Trailing SL
+          </label>
+          <label className="ml-2 inline-flex items-center gap-1">
+            <input type="number" step="any" min="0" max="99.9999"
+              aria-label="Existing position trailing stop distance percent"
+              disabled={!editTrailingEnabled} value={editTrailingPercent}
+              onChange={e=>setEditTrailingPercent(e.target.value)}
+              className="w-20 bg-[#0c1320] rounded px-2 disabled:opacity-40"/>%
+          </label>
+          <button className="ml-3 text-[#7ea7ff]" onClick={()=>{
+            onEditPosition(p.id,editTp?Number(editTp):undefined,editSl?Number(editSl):undefined,
+              editTrailingEnabled?Number(editTrailingPercent):null);
+            setEditId(null);
+          }}>Save stops</button>
           <button className="ml-3 text-[#98a1b6]" onClick={()=>setEditId(null)}>Cancel</button>
         </td></tr>}
         </React.Fragment>)}
