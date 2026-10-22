@@ -25,9 +25,10 @@ export function normalizePaperSettings(raw?:Partial<PaperSettings>):PaperSetting
 }
 export function marketPaperCategory(asset:Asset):keyof PaperSettings['leverages']{
   if (asset.category==='stocks'||asset.category==='funds')return 'stocks';
-  if (asset.category==='futures'||asset.marketType==='futures'||asset.marketType==='swap'||asset.category==='options')return 'futures';
-  if (asset.category==='forex')return 'forex';
   if (asset.category==='crypto')return 'crypto';
+  if (asset.category==='forex')return 'forex';
+  if (asset.category==='futures'||asset.category==='options'||
+      asset.marketType==='futures'||asset.marketType==='swap')return 'futures';
   return 'others';
 }
 export function accountLeverage(settings:PaperSettings,asset:Asset):number{
@@ -197,7 +198,7 @@ export function configurePaperPortfolio(input:PaperPortfolio,raw:PaperSettings,n
   const settings=normalizePaperSettings(raw);
   validatePaperSettings(settings);
   if(!name.trim())throw new Error('Account name is required.');
-  if(input.positions.length||input.fills.length){
+  if(input.positions.length||input.fills.length||(input.pendingOrders?.length||0)>0){
     if(settings.currency!==input.settings.currency)throw new Error('Currency cannot change after trading has begun.');
     if(settings.startingBalance!==input.settings.startingBalance)throw new Error('Starting balance cannot change after trading has begun; reset the account instead.');
   }
