@@ -14,12 +14,15 @@ export interface PaperEntryOrder {
   qty:number;price:number;currency:string;
   assetCategory:Asset['category'];marketType:Asset['marketType'];
   leverage:number;tp?:number;sl?:number;
+  takeProfitLevels?:PaperPartialTarget[];
   createdAt:number;expiresAt?:number;
   status:'pending';
 }
+export interface PaperPartialTarget {price:number;sharePercent:number}
 export interface PaperOrderRequest {
   side:PaperOrderSide;kind:PaperOrderKind;qty:number;
   price?:number;tp?:number;sl?:number;timeInForce?:PaperTimeInForce;
+  takeProfitLevels?:PaperPartialTarget[];
 }
 const finitePositive=(n:number)=>Number.isFinite(n)&&n>0;
 export const pendingFor=(p:PaperPortfolio):PaperEntryOrder[]=>p.pendingOrders||[];
@@ -51,10 +54,27 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
     throw new Error('Take-profit price must be on the profitable side of entry.');
   if(request.sl!==undefined&&(!finitePositive(request.sl)||(request.side==='Long'?request.sl>=price:request.sl<=price)))
     throw new Error('Stop-loss price must be on the protective side of entry.');
+  if(request.takeProfitLevels?.length){
+    const sum=request.takeProfitLevels.reduce((n,v)=>n+v.sharePercent,0);
+    if(Math.abs(sum-100)>0.001)throw new Error('Take-profit levels must allocate exactly 100% of the position.');
+    for(const target of request.takeProfitLevels){
+      if(!finitePositive(target.sharePercent)||!finitePositive(target.price)||
+        (request.side==='Long'?target.price<=price:target.price>=price))
+        throw new Error('Every take-profit level needs a positive size and profitable target price.');
+    }
+  }
   const cash=withOrderReservations(p).account.availableFunds;
   const required=request.qty*price/leverage+paperCommission(p.settings,a,request.qty,price);
   if(required>cash+1e-8)throw new Error('Insufficient free margin after accounting for pending orders and commissions.');
   return {leverage,price};
+}
+function applyPartialTargets(p:PaperPortfolio,levels:PaperPartialTarget[]|undefined):PaperPortfolio{
+  if(!levels?.length||!p.positions.length)return p;
+  const newest=p.positions[0];
+  return {...p,positions:p.positions.map(pos=>pos.id===newest.id?
+    {...pos,tp:undefined,tpLevels:levels.map((level,i)=>({
+      id:newest.id+'-tp-'+i,price:level.price,quantity:newest.qty*level.sharePercent/100,
+    }))}:pos)};
 }
 export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequest,now=Date.now()):PaperPortfolio{
   const {leverage,price}=withOrderValidation(p,a,request,now);
@@ -62,14 +82,14 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
     // Active reservations are removed from the free margin calculation, but
     // market executions must also pass the basic portfolio accounting guard.
     const filled=placePaperPosition(p,a,request.side,request.qty,leverage,request.tp,request.sl,now);
-    return withOrderReservations(filled);
+    return withOrderReservations(applyPartialTargets(filled,request.takeProfitLevels));
   }
   const ttl=request.timeInForce==='Day'?86400000:request.timeInForce==='Week'?604800000:undefined;
   const order:PaperEntryOrder={
     id:'pending-'+now+'-'+Math.random().toString(36).slice(2,9),
     symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind,
     qty:request.qty,price,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
-    leverage,tp:request.tp,sl:request.sl,createdAt:now,
+    leverage,tp:request.tp,sl:request.sl,takeProfitLevels:request.takeProfitLevels,createdAt:now,
     expiresAt:ttl?now+ttl:undefined,status:'pending',
   };
   return withOrderReservations({...p,pendingOrders:[...pendingFor(p),order]});
@@ -98,8 +118,8 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
     try{
       const synthetic={...a,price:fillPrice,quoteUpdatedAt:at,quoteStatus:'live' as const};
       // Attached exits must be valid against the actual executable fill.
-      next=withOrderReservations(placePaperPosition(without,synthetic,order.side,
-        order.qty,order.leverage,order.tp,order.sl,at));
+      next=withOrderReservations(applyPartialTargets(placePaperPosition(without,synthetic,order.side,
+        order.qty,order.leverage,order.tp,order.sl,at),order.takeProfitLevels));
     }catch{
       // Keep the pending instruction intact if the wallet cannot support
       // execution at the observed price or the bracket becomes invalid.
