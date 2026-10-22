@@ -1215,7 +1215,6 @@ export default function App() {
             pendingOrders={paperPortfolio.pendingOrders||[]}
             onCancelPendingOrder={handleCancelPendingOrder}
             activeAsset={activeAsset}
-            onPlacePosition={handlePlacePaperPosition}
             onEditPosition={handleEditPaperStops}
             onResetPaper={handleResetPaper}
             paperError={paperError}
