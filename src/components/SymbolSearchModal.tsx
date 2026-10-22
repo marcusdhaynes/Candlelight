@@ -49,6 +49,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [resultLimit, setResultLimit] = useState(150);
   const [liveQuotes, setLiveQuotes] = useState<Record<string, Partial<Asset>>>({});
+  const [isCheckingFeeds,setIsCheckingFeeds] = useState(true);
   const deferredSearch = useDeferredValue(search);
   const quoteKey = (a: Asset) => `${a.source || a.exchange}:${a.marketType || ''}:${a.symbol}`;
 
@@ -90,7 +91,65 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
 
   const [openDropdown, setOpenDropdown] = useState<'source' | 'type' | 'exchange' | null>(null);
 
-  // Every listed source is selectable; listings without a working feed remain explicitly unverified.
+  // Probe a real quote on each implemented public venue and market type.
+  // An exchange directory entry is not proof that a free live market feed works.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const probe = async () => {
+      setIsCheckingFeeds(true);
+      const byVenueType = new Map<string,Asset[]>();
+      for (const a of allAssets) {
+        const source = (a.source || a.exchange);
+        if (!sourceInfo(source)?.directFeed || !['spot','swap','futures'].includes(a.marketType || '')) continue;
+        const key = source.toLowerCase() + ':' + a.marketType;
+        const existing = byVenueType.get(key) || [];
+        existing.push(a);
+        byVenueType.set(key,existing);
+      }
+      const candidates = [...byVenueType.values()].flatMap(list =>
+        list.sort((a,b) => {
+          const rank = (x:Asset) => /^((PI_|PF_)?(BTC|XBT|ETH)(USD|USDT|-USD)|BTC|ETH)/i.test(x.symbol) ? -1 : 0;
+          return rank(a)-rank(b);
+        }).slice(0,2));
+      const settled = await Promise.all(candidates.map(async a => {
+        const quote = await fetchRealTicker24h(a).catch(()=>null);
+        return quote?.quoteStatus === 'live' && quote.quoteUpdatedAt ?
+          [quoteKey(a),quote] as const : null;
+      }));
+      if (!cancelled) {
+        setLiveQuotes(prev=>({...prev,...Object.fromEntries(
+          settled.filter((entry):entry is readonly [string,Partial<Asset>]=>entry!==null))}));
+        setIsCheckingFeeds(false);
+      }
+    };
+    void probe();
+    const timer = window.setInterval(()=>{void probe();},30000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [isOpen, allAssets]);
+
+  // Availability derives from successful current-session public quote requests.
+  // Snapshots, bundled example quotes, and unimplemented providers do NOT qualify.
+  const verifiedAssets = useMemo(() => allAssets.filter(a => {
+    const q = liveQuotes[quoteKey(a)];
+    return q?.quoteStatus === 'live' && !!q.quoteUpdatedAt && Date.now()-q.quoteUpdatedAt < 90000;
+  }),[allAssets,liveQuotes]);
+  const sourceWorks = (name:string) => {
+    if (!sourceInfo(name)?.directFeed) return false;
+    return verifiedAssets.some(a=>[a.source,a.exchange].some(x=>x?.toLowerCase()===name.toLowerCase()));
+  };
+  const categoryWorks = (id:FilterCategory) => id === 'all' ||
+    verifiedAssets.some(a=>id==='futures' ?
+      a.category==='futures'||a.marketType==='futures'||a.marketType==='swap' : a.category===id);
+  const typeWorks = (id:string) => id==='all' ||
+    verifiedAssets.some(a=>a.marketType===id);
+  const exchangeWorks = (id:string) => id==='all' ||
+    verifiedAssets.some(a=>{
+      const kind=sourceInfo(a.source||a.exchange)?.kind;
+      return id==='dex' ? kind==='DEX' : kind==='CEX';
+    });
+
+  // All source names remain searchable; an unavailable source is visible but disabled.
   const availableSources = useMemo(() => {
     const names = new Set([...MARKET_SOURCES.map(s => s.name), ...allAssets.map(a => a.source || a.exchange)]);
     return Array.from(names).sort((a, b) => a.localeCompare(b));
@@ -444,8 +503,10 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
               <button
                 key={tab.id}
                 id={`search-tab-${tab.id}`}
+                disabled={!categoryWorks(tab.id)}
+                title={!categoryWorks(tab.id)?'No verified free real-time feed for this market':''}
                 onClick={() => setSelectedCategory(tab.id)}
-                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap transition-all font-medium ${
+                className={`text-xs px-3 py-1 rounded-full whitespace-nowrap transition-all font-medium ${!categoryWorks(tab.id)?'opacity-30 grayscale cursor-not-allowed': ''} ${
                   isSelected
                     ? 'bg-white text-[#131722] font-semibold shadow-xs'
                     : 'text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#2a2e39]/60'
@@ -495,20 +556,23 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                       className="w-full bg-[#131722] border border-[#2a2e39] rounded px-2 py-1.5 text-xs text-white outline-none focus:border-[#2962ff]" />
                   </div>
                   {matchingSources.map((src) => (
-                    <div
+                    <button type="button"
                       key={src}
+                      disabled={!sourceWorks(src)}
+                      title={!sourceWorks(src)?'No verified free real-time feed for this source':'Verified public market quote'}
                       onClick={() => {
+                        if (!sourceWorks(src)) return;
                         setSelectedSource(src);
                         setOpenDropdown(null);
                       }}
-                      className={`px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer hover:bg-[#2a2e39] ${
+                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[#2a2e39] ${!sourceWorks(src)?'opacity-30 grayscale cursor-not-allowed':'cursor-pointer'} ${
                         selectedSource === src ? 'text-[#2962ff] font-medium' : 'text-[#d1d4dc]'
                       }`}
                     >
                       <span className="flex items-center gap-2 min-w-0"><span className="truncate">{src}</span>
                       <span className="text-[9px] text-[#787b86] shrink-0">{sourceCounts.get(src.toLowerCase()) || '—'}</span></span>
                       {selectedSource === src && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -532,19 +596,22 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {['all', 'spot', 'swap', 'futures', 'index', 'fundamental'].map((t) => (
-                    <div
+                    <button type="button"
                       key={t}
+                      disabled={!typeWorks(t)}
+                      title={!typeWorks(t)?'No verified free real-time feed for this type':''}
                       onClick={() => {
+                        if (!typeWorks(t)) return;
                         setSelectedType(t);
                         setOpenDropdown(null);
                       }}
-                      className={`px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer hover:bg-[#2a2e39] ${
+                      className={`w-full px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[#2a2e39] ${!typeWorks(t)?'opacity-30 grayscale cursor-not-allowed':'cursor-pointer'} ${
                         selectedType === t ? 'text-[#2962ff] font-medium' : 'text-[#d1d4dc]'
                       }`}
                     >
                       <span className="capitalize">{t === 'all' ? 'All types' : t}</span>
                       {selectedType === t && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -572,19 +639,22 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
                   onClick={(e) => e.stopPropagation()}
                 >
                   {['all', 'cex', 'dex'].map((et) => (
-                    <div
+                    <button type="button"
                       key={et}
+                      disabled={!exchangeWorks(et)}
+                      title={!exchangeWorks(et)?'No verified free real-time feed for this exchange type':''}
                       onClick={() => {
+                        if (!exchangeWorks(et)) return;
                         setSelectedExchangeType(et);
                         setOpenDropdown(null);
                       }}
-                      className={`px-3 py-1.5 text-xs flex items-center justify-between cursor-pointer hover:bg-[#2a2e39] ${
+                      className={`w-full px-3 py-1.5 text-xs flex items-center justify-between hover:bg-[#2a2e39] ${!exchangeWorks(et)?'opacity-30 grayscale cursor-not-allowed':'cursor-pointer'} ${
                         selectedExchangeType === et ? 'text-[#2962ff] font-medium' : 'text-[#d1d4dc]'
                       }`}
                     >
                       <span>{et === 'all' ? 'All exchanges' : et.toUpperCase()}</span>
                       {selectedExchangeType === et && <Check className="w-3.5 h-3.5 text-[#2962ff]" />}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -592,7 +662,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
           </div>
 
           <div className="text-[11px] text-[#787b86]">
-            {filteredAssets.length.toLocaleString()} symbols {isDiscovering ? '· loading exchanges…' : ''}
+            {filteredAssets.length.toLocaleString()} symbols {isDiscovering ? '· loading exchanges…' : ''} {isCheckingFeeds ? '· checking free live feeds…' : ''}
           </div>
         </div>
 
@@ -697,7 +767,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
         <div className="px-5 py-2.5 border-t border-[#2a2e39]/60 flex items-center justify-between text-[11px] text-[#787b86] bg-[#171b26]">
           <span>{isDiscovering ? 'Discovering public exchange markets…' : `${allAssets.length.toLocaleString()} instruments indexed`}
             {discoveryErrors.length ? ` · ${discoveryErrors.length} providers unavailable` : ''}
-            {' · Unverified quotes are intentionally hidden'}</span>
+            {' · Gray filters have no verified free live feed; unverified prices hidden'}</span>
           <div className="flex items-center gap-3 text-[10px]">
             <span><kbd className="px-1 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↑</kbd> <kbd className="px-1 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↓</kbd> navigate</span>
             <span><kbd className="px-1.5 py-0.5 rounded bg-[#2a2e39] text-[#d1d4dc]">↵</kbd> select</span>
