@@ -214,6 +214,8 @@ export interface PaperPosition {
   tp?: number;
   sl?: number;
   tpLevels?:PaperTargetLevel[];
+  trailingPercent?:number;
+  trailingAnchor?:number;
 }
 
 export interface PaperAccount {
