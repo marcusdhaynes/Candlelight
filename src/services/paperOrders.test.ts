@@ -31,7 +31,12 @@ const day=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:95,
 assert.equal(evaluatePaperOrders(day,fresh(100,now+86400001),now+86400001).pendingOrders?.length,0);
 const m=submitPaperOrder(empty,asset,{side:'Short',kind:'market',qty:1},now);
 assert.equal(m.positions.length,1);assert.equal(m.positions[0].side,'Short');
-assert.throws(()=>submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:101},now),/Limit entry/);
+const marketableBuy=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:101},now);
+assert.equal(marketableBuy.positions.length,1);
+approx(marketableBuy.positions[0].entryPrice,100);
+const marketableSell=submitPaperOrder(empty,asset,{side:'Short',kind:'limit',qty:1,price:99},now);
+assert.equal(marketableSell.positions.length,1);
+approx(marketableSell.positions[0].entryPrice,100);
 assert.throws(()=>submitPaperOrder(empty,asset,{side:'Short',kind:'stop',qty:1,price:101},now),/Stop entry/);
 assert.throws(()=>submitPaperOrder(empty,asset,{side:'Long',kind:'market',qty:1000},now),/Insufficient/);
 const holds=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:99,price:95},now);
