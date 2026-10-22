@@ -22,7 +22,6 @@ export interface BottomTradingPanelProps {
   onOpenTicket:()=>void;
   pendingOrders:PaperEntryOrder[];
   onCancelPendingOrder:(id:string)=>void;
-  onPlacePosition:(side:'Long'|'Short',qty:number,leverage:number,tp?:number,sl?:number)=>void;
   onEditPosition:(id:string,tp?:number,sl?:number)=>void;
   onResetPaper:()=>void; paperError:string; fills:PaperFill[];
   conditionalOrders:ConditionalOrder[];
@@ -44,7 +43,7 @@ const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFract
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
-  account,positions,activeAsset,onClosePosition,onPlacePosition,onEditPosition,onResetPaper,paperError,fills,
+  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,paperError,fills,
   onOpenTicket,pendingOrders,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
