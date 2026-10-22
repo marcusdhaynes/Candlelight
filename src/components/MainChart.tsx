@@ -122,7 +122,7 @@ export const MainChart = React.memo(
     const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const activeSeriesRef = useRef<ISeriesApi<any>[]>([]);
     const seriesBundleRef = useRef<{
-      symbol: string;
+      marketKey: string;
       timeframe: string;
       chartType: ChartType;
       indicatorsKey: string;
@@ -130,6 +130,7 @@ export const MainChart = React.memo(
       volumeSeries?: ISeriesApi<any>;
       candleCount: number;
       firstCandleTime: number;
+      historyFingerprint:string;
     } | null>(null);
 
     const indicatorsKey = useMemo(() => JSON.stringify(indicators), [indicators]);
@@ -319,12 +320,20 @@ export const MainChart = React.memo(
         chartType === 'heikin-ashi' ? convertToHeikinAshi(candles) : candles;
       const lastCandle = chartCandles[chartCandles.length - 1];
       const firstCandle = chartCandles[0];
+      const marketKey=[asset.symbol,asset.source||asset.exchange,asset.marketType].join('|');
+      // A complete history refresh (or venue change) must never use the
+      // single-candle update fast path.
+      const midCandle=chartCandles[Math.floor(chartCandles.length/2)];
+      const previousCandle=chartCandles[chartCandles.length-2];
+      const historyFingerprint=[firstCandle?.time,firstCandle?.open,firstCandle?.close,
+        midCandle?.time,midCandle?.close,previousCandle?.time,previousCandle?.close].join('|');
 
       const bundle = seriesBundleRef.current;
       const isSameConfig =
         bundle !== null &&
-        bundle.symbol === asset.symbol &&
+        bundle.marketKey === marketKey &&
         bundle.timeframe === timeframe &&
+        bundle.historyFingerprint === historyFingerprint &&
         bundle.chartType === chartType &&
         bundle.indicatorsKey === indicatorsKey &&
         bundle.firstCandleTime === firstCandle?.time &&
@@ -833,11 +842,11 @@ export const MainChart = React.memo(
         signalLineSeries.setData(macdData.map((d) => ({ time: d.time as any, value: d.signal })));
       }
 
-      if (!bundle || bundle.symbol !== asset.symbol || bundle.timeframe !== timeframe || (bundle.candleCount < 10 && candles.length > 10)) {
+      if (!bundle || bundle.marketKey !== marketKey || bundle.timeframe !== timeframe || (bundle.candleCount < 10 && candles.length > 10)) {
         chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 180), to: candles.length + 4 });
       }
       seriesBundleRef.current = {
-        symbol: asset.symbol,
+        marketKey,
         timeframe,
         chartType,
         indicatorsKey,
@@ -845,8 +854,9 @@ export const MainChart = React.memo(
         volumeSeries,
         candleCount: candles.length,
         firstCandleTime: firstCandle?.time || 0,
+        historyFingerprint,
       };
-    }, [asset.symbol, timeframe, chartType, candles, indicatorsKey]);
+    }, [asset.symbol, asset.source, asset.exchange, asset.marketType, timeframe, chartType, candles, indicatorsKey]);
 
     // Calculate dynamic Y pixel position for open position line overlay
     const [positionY, setPositionY] = useState<number | null>(null);
