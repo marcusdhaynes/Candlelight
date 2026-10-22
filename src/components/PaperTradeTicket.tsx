@@ -73,12 +73,13 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const [slMode,setSlMode]=useState<PaperExitMode>('percent');
   const [tpValue,setTpValue]=useState('2.10');
   const [slValue,setSlValue]=useState('0.13');
+  const [extraTps,setExtraTps]=useState<Array<{id:number;price:string;share:string}>>([]);
   const [exitsOpen,setExitsOpen]=useState(true);
   const [settingsOpen,setSettingsOpen]=useState(true);
   const [sizeMenu,setSizeMenu]=useState(false);
   const [errorLocal,setErrorLocal]=useState('');
   const venue=asset.source||asset.exchange;
-  useEffect(()=>{setPriceInput('');setErrorLocal('');setKind('market');setDom(false);},[asset.symbol,venue]);
+  useEffect(()=>{setPriceInput('');setErrorLocal('');setKind('market');setDom(false);setExtraTps([]);},[asset.symbol,venue]);
   useEffect(()=>{
     if(!open)return;
     const key=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};
@@ -103,7 +104,15 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const fee=paperCommission(portfolio.settings,asset,qty,entry);
   const tp=tpEnabled?exitPriceFromValue(entry,qty,side,'tp',tpMode,Number(tpValue),tick,base.account.balance):undefined;
   const sl=slEnabled?exitPriceFromValue(entry,qty,side,'sl',slMode,Number(slValue),tick,base.account.balance):undefined;
-  const reward=tp&&qty?Math.abs(tp-entry)*qty:0,risk=sl&&qty?Math.abs(entry-sl)*qty:0;
+  const allocated=extraTps.reduce((sum,l)=>sum+(Number(l.share)||0),0);
+  const levels=tpEnabled&&tp&&extraTps.length?
+    [{price:tp,sharePercent:100-allocated},...extraTps.map(l=>({price:Number(l.price),sharePercent:Number(l.share)}))]:undefined;
+  const validLevels=!levels||(allocated<100 && extraTps.every(l=>Number(l.price)>0 && Number(l.share)>0) &&
+    levels.every(l=>side==='Long'?l.price>entry:l.price<entry));
+  const reward=tp&&qty?(levels?
+    levels.reduce((sum,l)=>sum+Math.abs(l.price-entry)*qty*l.sharePercent/100,0):
+    Math.abs(tp-entry)*qty):0;
+  const risk=sl&&qty?Math.abs(entry-sl)*qty:0;
   const rr=risk>0?reward/risk:0;
   const cash=portfolio.settings.currency;
   const sizeLabels={balance:'% Balance',units:'Units',notional:'Notional '+cash};
@@ -115,10 +124,11 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   };
   const canSubmit=live&&qty>0&&Number.isFinite(qty)&&entry>0&&
     (kind==='market'||Number(priceInput)>0)&&margin+fee<=base.account.availableFunds+1e-7&&
-    (!tpEnabled||!!tp)&&(!slEnabled||!!sl)&&asset.currency===cash;
+    (!tpEnabled||!!tp)&&(!slEnabled||!!sl)&&validLevels&&asset.currency===cash;
   const submit=()=>{
     setErrorLocal('');
-    const reason=onSubmit({side,kind,qty,price:kind==='market'?undefined:entry,tp,sl,timeInForce:tif});
+    const reason=onSubmit({side,kind,qty,price:kind==='market'?undefined:entry,tp,sl,timeInForce:tif,
+      takeProfitLevels:levels});
     if(reason)setErrorLocal(reason);
     else onClose();
   };
@@ -196,9 +206,32 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
               enabled={tpEnabled} setEnabled={setTpEnabled} mode={tpMode} setMode={setTpMode} value={tpValue} setValue={setTpValue}/>
             <ExitField kind="sl" entry={entry} qty={qty} balance={base.account.balance} side={side} tick={tick}
               enabled={slEnabled} setEnabled={setSlEnabled} mode={slMode} setMode={setSlMode} value={slValue} setValue={setSlValue}/>
+            {tpEnabled&&<>
+              {extraTps.map((l,i)=><div key={l.id} className="flex gap-1 items-end">
+                <label className="flex-1 min-w-0 text-[10px] text-[#abb5c5]">TP level {i+2} price
+                  <input type="number" step="any" min="0" value={l.price} aria-label={'TP level '+(i+2)+' price'}
+                    onChange={e=>setExtraTps(prev=>prev.map(x=>x.id===l.id?{...x,price:e.target.value}:x))}
+                    className={controls}/></label>
+                <label className="w-20 text-[10px] text-[#abb5c5]">Close %
+                  <input type="number" min="0" max="99" step="any" value={l.share}
+                    aria-label={'TP level '+(i+2)+' percent'}
+                    onChange={e=>setExtraTps(prev=>prev.map(x=>x.id===l.id?{...x,share:e.target.value}:x))}
+                    className={controls}/></label>
+                <button title="Remove this take profit level" className="h-8 px-1.5 text-[#eb8c98]"
+                  onClick={()=>setExtraTps(prev=>prev.filter(x=>x.id!==l.id))}><X size={14}/></button>
+              </div>)}
+              {extraTps.length>0&&<p className="text-[10px] text-[#99a1b0]">
+                Primary target closes {pct(100-allocated)}%; additional levels close {pct(allocated)}%.</p>}
+              {!validLevels&&<p className="text-[10px] text-[#ffb3bf]">
+                Each TP must be profitable, and extra targets must total less than 100%.</p>}
+              {extraTps.length<5&&<button type="button" className="text-[11px] text-[#7ca8ff] flex items-center gap-1"
+                onClick={()=>{
+                  const price=tp&&entry?tp+(tp-entry)*.5*(extraTps.length+1):entry;
+                  setExtraTps(prev=>[...prev,{id:Date.now()+prev.length,price:price>0?String(Number(price.toPrecision(10))):'',share:'25'}]);
+                }}><Plus size={13}/> Add level</button>}
+            </>}
             {tpEnabled&&slEnabled&&risk>0&&<p className="flex justify-between text-[11px] text-[#c7cbd5]">
               <span>Risk / Reward</span><strong>{pct(rr)}</strong></p>}
-            <div className="text-[10px] text-[#89929f]">One take-profit and one protective stop per order. Additional partial-target levels require separate positions.</div>
           </div>}
         </div>
         {kind!=='market'&&<div className="mt-5">
