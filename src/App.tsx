@@ -224,6 +224,7 @@ export default function App() {
     setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
       orders:typeof action==='function'?action(record.orders):action})));
   const [paperError,setPaperError]=useState('');
+  const previousRulePrices=useRef<Record<string,number>>({});
   const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>
     [...a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange),
      ...(a.portfolio.pendingOrders||[]).map(o=>o.symbol+'|'+o.exchange)]))].join('~');
@@ -1008,6 +1009,9 @@ export default function App() {
   useEffect(() => {
     if (conditionalOrders.length === 0 || !isFreshPaperQuote(activeAsset)) return;
     const curPrice = activeAsset.price;
+    const ruleMarket=assetIdentity(activeAsset);
+    const priorPrice=previousRulePrices.current[ruleMarket];
+    previousRulePrices.current[ruleMarket]=curPrice;
     const activeRules = conditionalOrders.filter(
       (o) => o.status === 'active' && o.symbol === activeAsset.symbol &&
         o.triggerCount < (o.maxTriggers||9999)
@@ -1018,18 +1022,21 @@ export default function App() {
         if (cond.dependencyType === 'price' || cond.dependencyType === 'drawing') {
           const thresh = cond.thresholdValue;
           if (thresh == null) return false;
-          if (cond.operator === 'crosses_above' || cond.operator === 'greater_than') {
-            return curPrice >= thresh;
+          if (cond.operator === 'crosses_above') {
+            return priorPrice!==undefined&&priorPrice<thresh&&curPrice>=thresh;
           }
-          if (cond.operator === 'crosses_below' || cond.operator === 'less_than') {
-            return curPrice <= thresh;
+          if (cond.operator === 'crosses_below') {
+            return priorPrice!==undefined&&priorPrice>thresh&&curPrice<=thresh;
           }
+          if (cond.operator === 'greater_than') return curPrice>thresh;
+          if (cond.operator === 'less_than') return curPrice<thresh;
           if (cond.operator === 'touches') {
-            return Math.abs(curPrice - thresh) / thresh < 0.003;
+            return thresh>0&&Math.abs(curPrice-thresh)/thresh<0.003;
           }
         }
         if (cond.dependencyType === 'position') {
-          const pos = paperPositions.find((p) => p.symbol === activeAsset.symbol);
+          const pos = paperPositions.find((p) => p.symbol === activeAsset.symbol &&
+            p.exchange===(activeAsset.source||activeAsset.exchange));
           if (!pos) return false;
           if (cond.operator === 'pnl_above_percent') {
             return pos.unrealizedPnLPct >= (cond.thresholdValue || 0);
