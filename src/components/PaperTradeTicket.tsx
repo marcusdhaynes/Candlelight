@@ -69,6 +69,8 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const [dom,setDom]=useState(false);
   const [tpEnabled,setTpEnabled]=useState(false);
   const [slEnabled,setSlEnabled]=useState(false);
+  const [trailingEnabled,setTrailingEnabled]=useState(false);
+  const [trailingPercent,setTrailingPercent]=useState('0.50');
   const [tpMode,setTpMode]=useState<PaperExitMode>('percent');
   const [slMode,setSlMode]=useState<PaperExitMode>('percent');
   const [tpValue,setTpValue]=useState('2.10');
@@ -104,6 +106,14 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const fee=paperCommission(portfolio.settings,asset,qty,entry);
   const tp=tpEnabled?exitPriceFromValue(entry,qty,side,'tp',tpMode,Number(tpValue),tick,base.account.balance):undefined;
   const sl=slEnabled?exitPriceFromValue(entry,qty,side,'sl',slMode,Number(slValue),tick,base.account.balance):undefined;
+  const trailingNumber=Number(trailingPercent);
+  const validTrailing=!trailingEnabled||(trailingPercent.trim()!==''&&
+    Number.isFinite(trailingNumber)&&trailingNumber>0&&trailingNumber<100);
+  const trailingStop=trailingEnabled&&validTrailing&&entry>0?
+    entry*(side==='Long'?1-trailingNumber/100:1+trailingNumber/100):undefined;
+  // Both protective stops can be enabled; whichever is tighter applies.
+  const protectiveStop=sl===undefined?trailingStop:trailingStop===undefined?sl:
+    side==='Long'?Math.max(sl,trailingStop):Math.min(sl,trailingStop);
   const allocated=extraTps.reduce((sum,l)=>sum+(Number(l.share)||0),0);
   const levels=tpEnabled&&tp&&extraTps.length?
     [{price:tp,sharePercent:100-allocated},...extraTps.map(l=>({price:Number(l.price),sharePercent:Number(l.share)}))]:undefined;
@@ -112,7 +122,7 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const reward=tp&&qty?(levels?
     levels.reduce((sum,l)=>sum+Math.abs(l.price-entry)*qty*l.sharePercent/100,0):
     Math.abs(tp-entry)*qty):0;
-  const risk=sl&&qty?Math.abs(entry-sl)*qty:0;
+  const risk=protectiveStop&&qty?Math.abs(entry-protectiveStop)*qty:0;
   const rr=risk>0?reward/risk:0;
   const cash=portfolio.settings.currency;
   const sizeLabels={balance:'% Balance',units:'Units',notional:'Notional '+cash};
@@ -124,10 +134,11 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   };
   const canSubmit=live&&qty>0&&Number.isFinite(qty)&&entry>0&&
     (kind==='market'||Number(priceInput)>0)&&margin+fee<=base.account.availableFunds+1e-7&&
-    (!tpEnabled||!!tp)&&(!slEnabled||!!sl)&&validLevels&&asset.currency===cash;
+    (!tpEnabled||!!tp)&&(!slEnabled||!!sl)&&validTrailing&&validLevels&&asset.currency===cash;
   const submit=()=>{
     setErrorLocal('');
     const reason=onSubmit({side,kind,qty,price:kind==='market'?undefined:entry,tp,sl,timeInForce:tif,
+      trailingStopPercent:trailingEnabled?trailingNumber:undefined,
       takeProfitLevels:levels});
     if(reason)setErrorLocal(reason);
     else onClose();
@@ -206,6 +217,39 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
               enabled={tpEnabled} setEnabled={setTpEnabled} mode={tpMode} setMode={setTpMode} value={tpValue} setValue={setTpValue}/>
             <ExitField kind="sl" entry={entry} qty={qty} balance={base.account.balance} side={side} tick={tick}
               enabled={slEnabled} setEnabled={setSlEnabled} mode={slMode} setMode={setSlMode} value={slValue} setValue={setSlValue}/>
+            <div className="space-y-1.5 border-t border-[#33363a] pt-3">
+              <div className="flex items-center justify-between">
+                <label htmlFor="paper-trailing-stop-toggle" className="text-[11px] text-[#b2b6c0] cursor-pointer">
+                  Trailing stop loss
+                </label>
+                <button id="paper-trailing-stop-toggle" type="button" role="switch"
+                  aria-checked={trailingEnabled} aria-label="Enable trailing stop loss"
+                  className={`relative w-9 h-5 rounded-full ${trailingEnabled?'bg-[#efefef]':'bg-[#44464b]'}`}
+                  onClick={()=>setTrailingEnabled(v=>!v)}>
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full shadow ${trailingEnabled?'right-0.5 bg-[#1a1c22]':'left-0.5 bg-[#81848b]'}`}/>
+                </button>
+              </div>
+              <label className="block text-[11px] text-[#9fa8b9]">
+                Trail distance (% of price)
+                <div className={`mt-1 flex items-center gap-2 rounded-md border border-[#414348] h-9 px-2 ${trailingEnabled?'bg-[#141516]':'opacity-45 bg-[#252528]'}`}>
+                  <input type="number" min="0" max="99.9999" step="any"
+                    aria-label="Trailing stop distance percent"
+                    disabled={!trailingEnabled} value={trailingPercent}
+                    onChange={e=>setTrailingPercent(e.target.value)}
+                    className="bg-transparent outline-none flex-1 min-w-0 text-xs text-[#f6f7fa]"/>
+                  <span className="text-xs text-[#b4bac6]">%</span>
+                </div>
+              </label>
+              {trailingEnabled&&<>
+                {validTrailing?
+                  <p className="text-[10px] text-[#8faac5]">
+                    Initial trail: {trailingStop?trailingStop.toLocaleString(undefined,{maximumFractionDigits:10}):'—'}
+                    {' · '}Follows {side==='Long'?'rising':'falling'} prices only.
+                    {slEnabled?' The tighter of fixed and trailing stops applies.':''}
+                  </p>:
+                  <p role="alert" className="text-[10px] text-[#ff9ba8]">Enter a distance greater than 0% and less than 100%.</p>}
+              </>}
+            </div>
             {tpEnabled&&<>
               {extraTps.map((l,i)=><div key={l.id} className="flex gap-1 items-end">
                 <label className="flex-1 min-w-0 text-[10px] text-[#abb5c5]">TP level {i+2} price
@@ -230,7 +274,7 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
                   setExtraTps(prev=>[...prev,{id:Date.now()+prev.length,price:price>0?String(Number(price.toPrecision(10))):'',share:'25'}]);
                 }}><Plus size={13}/> Add level</button>}
             </>}
-            {tpEnabled&&slEnabled&&risk>0&&<p className="flex justify-between text-[11px] text-[#c7cbd5]">
+            {tpEnabled&&(slEnabled||trailingEnabled)&&risk>0&&<p className="flex justify-between text-[11px] text-[#c7cbd5]">
               <span>Risk / Reward</span><strong>{pct(rr)}</strong></p>}
           </div>}
         </div>
