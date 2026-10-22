@@ -165,9 +165,18 @@ export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now(
   if(!isFreshPaperQuote(asset,at))return input;
   const venue=asset.source||asset.exchange;
   if(!input.positions.some(p=>p.symbol===asset.symbol && p.exchange===venue))return input;
-  let next:PaperPortfolio={...input,positions:input.positions.map(p=>
-    p.symbol===asset.symbol&&p.exchange===venue?
-      {...p,currentPrice:asset.price,lastMarkedAt:at}:p)};
+  let next:PaperPortfolio={...input,positions:input.positions.map(p=>{
+    if(p.symbol!==asset.symbol||p.exchange!==venue)return p;
+    if(!p.trailingPercent)return {...p,currentPrice:asset.price,lastMarkedAt:at};
+    const anchor=p.side==='Long'?
+      Math.max(p.trailingAnchor||p.currentPrice,asset.price):
+      Math.min(p.trailingAnchor||p.currentPrice,asset.price);
+    const proposed=p.side==='Long'?anchor*(1-p.trailingPercent/100):
+      anchor*(1+p.trailingPercent/100);
+    const sl=p.sl===undefined?proposed:
+      p.side==='Long'?Math.max(p.sl,proposed):Math.min(p.sl,proposed);
+    return {...p,currentPrice:asset.price,lastMarkedAt:at,trailingAnchor:anchor,sl};
+  })};
   next=recalculatePaperPortfolio(next);
   // Execute TP/SL on the real observed tick (not an optimistic assumed fill).
   for(const p of [...next.positions]){
@@ -205,4 +214,15 @@ export function configurePaperPortfolio(input:PaperPortfolio,raw:PaperSettings,n
   const result={...input,settings,account:{...input.account,name:name.trim(),
     balance:input.fills.length||input.positions.length?input.account.balance:settings.startingBalance}};
   return recalculatePaperPortfolio(result);
+}
+
+export function enableTrailingPaperStop(input:PaperPortfolio,id:string,percent:number):PaperPortfolio{
+  if(!Number.isFinite(percent)||percent<=0||percent>=100)throw new Error('Trailing stop must be between 0 and 100 percent.');
+  const p=input.positions.find(x=>x.id===id);
+  if(!p)throw new Error('Position unavailable.');
+  const anchor=p.currentPrice;
+  const sl=p.side==='Long'?anchor*(1-percent/100):anchor*(1+percent/100);
+  return {...input,positions:input.positions.map(x=>x.id===id?
+    {...x,trailingPercent:percent,trailingAnchor:anchor,sl:x.sl===undefined?sl:
+      x.side==='Long'?Math.max(x.sl,sl):Math.min(x.sl,sl)}:x)};
 }
