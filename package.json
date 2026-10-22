@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:paper": "tsx src/services/paperTrading.test.ts"
+    "test:paper": "tsx src/services/paperTrading.test.ts && tsx src/services/paperOrders.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
