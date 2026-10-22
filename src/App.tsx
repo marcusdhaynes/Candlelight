@@ -43,6 +43,7 @@ import { PaperTradeTicket } from './components/PaperTradeTicket';
 import { PaperAccountModal } from './components/PaperAccountModal';
 import { SavedChartsModal } from './components/SavedChartsModal';
 import type { SavedChartIdea } from './services/savedCharts';
+import {combineHistoryWithLive,mergeLiveCandle} from './services/chartCandles';
 import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,estimatePaperQty,withOrderReservations,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
@@ -719,13 +720,17 @@ export default function App() {
   useEffect(() => {
     let isCancelled = false;
     setIsLoadingCandles(true);
+    // Clear the former instrument immediately; do not display its candles
+    // under the next symbol while awaiting the exact-venue history response.
+    setCandles([]);
 
-    // 1. Fetch Real Historical Klines
     fetchHistoricalData(activeAsset, activeTimeframe).then((data) => {
       if (!isCancelled) {
-        setCandles(data);
+        setCandles(live => combineHistoryWithLive(data,live));
         setIsLoadingCandles(false);
       }
+    }).catch(() => {
+      if (!isCancelled) setIsLoadingCandles(false);
     });
 
     // 2. Fetch Real 24h Ticker data (high, low, volume, 24h price change)
@@ -811,23 +816,7 @@ export default function App() {
 
       onCandleTick: (candle, isClosed) => {
         if (isCancelled) return;
-        setCandles((prevCandles) => {
-          if (prevCandles.length === 0) return [candle];
-          const lastIndex = prevCandles.length - 1;
-          const last = prevCandles[lastIndex];
-
-          if (isClosed) {
-            return [...prevCandles.slice(0, -1), candle];
-          }
-
-          if (candle.time > last.time) {
-            return [...prevCandles, candle];
-          } else {
-            const next = prevCandles.slice();
-            next[lastIndex] = candle;
-            return next;
-          }
-        });
+        setCandles(previous=>mergeLiveCandle(previous,candle));
       },
 
       onOrderBook: (book) => {
