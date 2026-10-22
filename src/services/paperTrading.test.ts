@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type {Asset} from '../types';
 import {
   emptyPaperPortfolio,placePaperPosition,closePaperPosition,markPaperPositions,
-  recalculatePaperPortfolio,isFreshPaperQuote,paperCommission,
+  recalculatePaperPortfolio,isFreshPaperQuote,paperCommission,enableTrailingPaperStop,
   configurePaperPortfolio,accountLeverage,normalizePaperSettings,DEFAULT_PAPER_SETTINGS,
 } from './paperTrading';
 import {createPaperAccountRecord,initialPaperAccounts,updateActivePaperAccount} from './paperAccounts';
