@@ -48,7 +48,8 @@ import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
-import { emptyPaperPortfolio, placePaperPosition, closePaperPosition, markPaperPositions, updatePaperStops, isFreshPaperQuote, type PaperPortfolio } from './services/paperTrading';
+import { emptyPaperPortfolio, placePaperPosition, closePaperPosition, markPaperPositions, updatePaperStops, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
+import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
 export default function App() {
@@ -207,42 +208,66 @@ export default function App() {
   });
   const [activeNotification, setActiveNotification] = useState<{ id: string; message: string; type: 'alert' | 'info' } | null>(null);
 
-  // New, empty paper account. Intentionally do NOT hydrate the old demo trade.
-  const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio>(() => {
-    try {
-      const saved = localStorage.getItem('candlelight_paper_portfolio_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved) as PaperPortfolio;
-        if (parsed?.account && Array.isArray(parsed.positions) && Array.isArray(parsed.fills)) return parsed;
-      }
-    } catch { /* invalid data starts a clean paper account */ }
-    return emptyPaperPortfolio();
-  });
-  const {account:paperAccount, positions:paperPositions, fills:paperFills} = paperPortfolio;
-  const [paperError,setPaperError] = useState('');
-  // Mark every open position from its own venue even when another chart is active.
-  // Public quote polling is limited to open paper instruments; no synthetic fills.
-  const heldMarketKeys = [...new Set(paperPositions.map(p=>p.symbol+'|'+p.exchange))].join('~');
-  useEffect(() => {
+  // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
+  const [paperAccounts,setPaperAccounts]=useState<PaperAccountsState>(loadPaperAccounts);
+  const activePaperRecord=paperAccounts.accounts.find(a=>a.id===paperAccounts.activeId)||paperAccounts.accounts[0];
+  const paperPortfolio=activePaperRecord.portfolio;
+  const {account:paperAccount,positions:paperPositions,fills:paperFills}=paperPortfolio;
+  const conditionalOrders=activePaperRecord.orders;
+  const setPaperPortfolio=(action:PaperPortfolio|((prev:PaperPortfolio)=>PaperPortfolio))=>
+    setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
+      portfolio:typeof action==='function'?action(record.portfolio):action})));
+  const setConditionalOrders=(action:ConditionalOrder[]|((prev:ConditionalOrder[])=>ConditionalOrder[]))=>
+    setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
+      orders:typeof action==='function'?action(record.orders):action})));
+  const [paperError,setPaperError]=useState('');
+  const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange)))].join('~');
+  useEffect(()=>{
     const keys=heldMarketKeys.split('~').filter(Boolean);
-    if (!keys.length) return;
+    if(!keys.length)return;
     let cancelled=false;
-    const refresh=async () => {
-      const candidateAssets=keys.map(k=>{
-        const [symbol,exchange]=k.split('|');
+    const refresh=async()=>{
+      const pairs=keys.map(k=>{const [symbol,exchange]=k.split('|');
         return assets.find(a=>a.symbol===symbol&&(a.source||a.exchange)===exchange);
-      }).filter((a):a is Asset=>Boolean(a)).slice(0,20);
-      const quotes=await Promise.all(candidateAssets.map(async a=>{
-        const ticker=await fetchRealTicker24h(a).catch(()=>null);
-        return ticker?.quoteStatus==='live'?{...a,...ticker}:null;
+      }).filter((a):a is Asset=>Boolean(a));
+      const quotes=await Promise.all(pairs.map(async a=>{
+        const t=await fetchRealTicker24h(a).catch(()=>null);
+        return t?.quoteStatus==='live'?{...a,...t}:null;
       }));
-      if (cancelled) return;
-      setPaperPortfolio(prev=>quotes.reduce((p,quote)=>quote?markPaperPositions(p,quote):p,prev));
+      if(cancelled)return;
+      setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
+        portfolio:quotes.reduce((p,q)=>q?markPaperPositions(p,q):p,a.portfolio)}))}));
     };
     void refresh();
     const timer=window.setInterval(()=>{void refresh();},20000);
-    return ()=>{cancelled=true;window.clearInterval(timer);};
+    return()=>{cancelled=true;window.clearInterval(timer);};
   },[heldMarketKeys]);
+  const selectPaperAccount=(id:string)=>{
+    setPaperAccounts(prev=>prev.accounts.some(a=>a.id===id)?{...prev,activeId:id}:prev);
+    setPaperError('');
+  };
+  const savePaperAccount=(id:string|null,name:string,settings:PaperSettings)=>{
+    if(id){
+      // Validate before touching React state so the dialog receives any error.
+      const record=paperAccounts.accounts.find(a=>a.id===id);
+      if(!record)throw new Error('Account not found.');
+      const updated=configurePaperPortfolio(record.portfolio,settings,name);
+      setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>a.id===id?{...a,portfolio:updated}:a)}));
+    }else{
+      const record=createPaperAccountRecord(name,settings);
+      setPaperAccounts(prev=>({activeId:record.id,accounts:[...prev.accounts,record]}));
+    }
+    setPaperError('');
+  };
+  const deletePaperAccount=(id:string)=>{
+    setPaperAccounts(prev=>{
+      if(prev.accounts.length<=1)return prev;
+      const accounts=prev.accounts.filter(a=>a.id!==id);
+      return {accounts,activeId:prev.activeId===id?accounts[0].id:prev.activeId};
+    });
+    setPaperError('');
+  };
+  useEffect(()=>{try{savePaperAccounts(paperAccounts);}catch(e){console.warn('Unable to persist paper accounts',e);}},[paperAccounts]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
   const [isBottomTradingExpanded, setIsBottomTradingExpanded] = useState(false);
 
@@ -261,21 +286,11 @@ export default function App() {
   const [isPipActive, setIsPipActive] = useState(false);
   const pipRef = useRef<ChartPictureInPictureRef>(null);
 
-  // State: Conditional Orders
-  const [conditionalOrders, setConditionalOrders] = useState<ConditionalOrder[]>(() => {
-    try {
-      const saved = localStorage.getItem('candlelight_conditional_orders_v2');
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
   const [isConditionalOrderModalOpen, setIsConditionalOrderModalOpen] = useState(false);
   const [selectedDependencyForOrder, setSelectedDependencyForOrder] = useState<DependencyContext | null>(null);
   const [orderToEdit, setOrderToEdit] = useState<ConditionalOrder | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem('candlelight_conditional_orders_v2', JSON.stringify(conditionalOrders));
-  }, [conditionalOrders]);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] = useState<RightSidebarTab>(() => {
     const saved = localStorage.getItem('tv_right_sidebar_tab');
     return saved ? (saved as RightSidebarTab) : 'alerts';
@@ -613,10 +628,7 @@ export default function App() {
     localStorage.setItem('tv_detailed_alerts', JSON.stringify(detailedAlerts));
   }, [detailedAlerts]);
 
-  useEffect(() => {
-    localStorage.setItem('candlelight_paper_portfolio_v2', JSON.stringify(paperPortfolio));
-  }, [paperPortfolio]);
-
+ 
   useEffect(() => {
     localStorage.setItem('tv_active_symbol', activeAsset.symbol);
     localStorage.setItem('candlelight_active_source', activeAsset.source || activeAsset.exchange);
@@ -773,10 +785,10 @@ export default function App() {
           );
 
           // Value ONLY the selected symbol at its own observed real-market tick.
-          setPaperPortfolio(prev => markPaperPositions(prev, {
-            ...activeAsset, price: newPrice, quoteUpdatedAt: now,
-            quoteStatus: activeAsset.pairAddress ? 'delayed' : 'live',
-          }, now));
+          const quote={...activeAsset,price:newPrice,quoteUpdatedAt:now,
+            quoteStatus:activeAsset.pairAddress?'delayed' as const:'live' as const};
+          setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
+            portfolio:markPaperPositions(a.portfolio,quote,now)}))}));
         }
       },
 
@@ -848,7 +860,7 @@ export default function App() {
     catch(e){ setPaperError(e instanceof Error ? e.message : 'Invalid stops'); }
   };
   const handleResetPaper = () => {
-    setPaperPortfolio(emptyPaperPortfolio());
+    setPaperPortfolio(emptyPaperPortfolio(paperPortfolio.settings,paperPortfolio.account.name));
     setConditionalOrders([]);
     setPaperError('');
   };
@@ -909,7 +921,7 @@ export default function App() {
         let next:PaperPortfolio = paperPortfolio;
         if(order.action==='enter_long'||order.action==='enter_short') {
           const price=activeAsset.price;
-          next=placePaperPosition(next,activeAsset,side,qty,1,
+          next=placePaperPosition(next,activeAsset,side,qty,accountLeverage(next.settings,activeAsset),
             order.execution.tpPercent ? price*(1+(side==='Long'?1:-1)*order.execution.tpPercent/100):undefined,
             order.execution.slPercent ? price*(1-(side==='Long'?1:-1)*order.execution.slPercent/100):undefined);
         } else if(order.action==='exit_long'||order.action==='exit_short') {
@@ -929,7 +941,7 @@ export default function App() {
           const match = next.positions.find(p=>p.symbol===order.symbol &&
             p.exchange===(activeAsset.source||activeAsset.exchange));
           if(!match) throw new Error('No position to increase.');
-          next=placePaperPosition(next,activeAsset,match.side,qty,match.leverage||1);
+          next=placePaperPosition(next,activeAsset,match.side,qty,accountLeverage(next.settings,activeAsset));
         } else throw new Error('Unsupported paper order action.');
         setPaperPortfolio(next);
         setConditionalOrders(prev=>prev.map(o=>o.id!==order.id?o:{...o,
@@ -1179,6 +1191,12 @@ export default function App() {
           <BottomTradingPanel
             account={paperAccount}
             positions={paperPositions}
+            paperAccounts={paperAccounts.accounts}
+            activePaperAccountId={paperAccounts.activeId}
+            onSelectPaperAccount={selectPaperAccount}
+            onSavePaperAccount={savePaperAccount}
+            onDeletePaperAccount={deletePaperAccount}
+            paperSettings={paperPortfolio.settings}
             onClosePosition={handleClosePosition}
             activeAsset={activeAsset}
             onPlacePosition={handlePlacePaperPosition}
