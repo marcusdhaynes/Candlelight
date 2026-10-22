@@ -204,6 +204,8 @@ export interface PaperPosition {
   unrealizedPnL: number;
   unrealizedPnLPct: number;
   leverage?: number;
+  category?: AssetCategory;
+  marketType?: string;
   openedAt?: number;
   lastMarkedAt?: number;
   tp?: number;
