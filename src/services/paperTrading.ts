@@ -159,7 +159,15 @@ export function updatePaperStops(input: PaperPortfolio,id:string,tp?:number,sl?:
   if(!p) return input;
   if(tp!==undefined && (!Number.isFinite(tp)||tp<=0)) throw new Error('Invalid take-profit price.');
   if(sl!==undefined && (!Number.isFinite(sl)||sl<=0)) throw new Error('Invalid stop-loss price.');
-  return {...input,positions:input.positions.map(x=>x.id===id?{...x,tp,sl}:x)};
+  return {...input,positions:input.positions.map(x=>{
+    if(x.id!==id)return x;
+    // Editing a fixed stop must never loosen an already ratcheted trailing
+    // stop. Disabling trailing keeps the last achieved stop as a fixed floor.
+    const safeStop=x.trailingPercent && x.sl!==undefined
+      ? sl===undefined?x.sl:x.side==='Long'?Math.max(x.sl,sl):Math.min(x.sl,sl)
+      :sl;
+    return {...x,tp,sl:safeStop};
+  })};
 }
 export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now()):PaperPortfolio{
   if(!isFreshPaperQuote(asset,at))return input;
@@ -225,4 +233,11 @@ export function enableTrailingPaperStop(input:PaperPortfolio,id:string,percent:n
   return {...input,positions:input.positions.map(x=>x.id===id?
     {...x,trailingPercent:percent,trailingAnchor:anchor,sl:x.sl===undefined?sl:
       x.side==='Long'?Math.max(x.sl,sl):Math.min(x.sl,sl)}:x)};
+}
+
+/** Stop tracking but keep the last ratcheted SL as a protective fixed stop. */
+export function disableTrailingPaperStop(input:PaperPortfolio,id:string):PaperPortfolio{
+  if(!input.positions.some(p=>p.id===id))throw new Error('Position unavailable.');
+  return {...input,positions:input.positions.map(p=>p.id===id?
+    {...p,trailingPercent:undefined,trailingAnchor:undefined}:p)};
 }
