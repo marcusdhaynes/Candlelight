@@ -203,6 +203,9 @@ export interface PaperPosition {
   currentPrice: number;
   unrealizedPnL: number;
   unrealizedPnLPct: number;
+  leverage?: number;
+  openedAt?: number;
+  lastMarkedAt?: number;
   tp?: number;
   sl?: number;
 }
