@@ -126,7 +126,9 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({
     void probe();
     const timer = window.setInterval(()=>{void probe();},30000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [isOpen, allAssets]);
+  // Catalog membership changes only when the discovery finishes; price ticks
+  // must not restart these provider probes on every React render.
+  }, [isOpen, discovered.length]);
 
   // Availability derives from successful current-session public quote requests.
   // Snapshots, bundled example quotes, and unimplemented providers do NOT qualify.
