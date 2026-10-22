@@ -48,6 +48,10 @@ export function placePaperPosition(
   quantity: number, leverage = 1, tp?: number, sl?: number, at = Date.now()
 ): PaperPortfolio {
   if (!isFreshPaperQuote(asset, at)) throw new Error('A verified, recent live quote is required to open a position.');
+  // Paper cash ledger is USD. Non-USD quote assets need a separately verified
+  // exchange rate before they can be settled without inventing conversions.
+  if (asset.currency !== 'USD')
+    throw new Error('This USD paper account supports USD-quoted markets only until live currency conversion is available.');
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error('Quantity must be a positive number.');
   if (!Number.isInteger(leverage) || leverage < 1 || leverage > 20) throw new Error('Leverage must be 1–20×.');
   if (tp !== undefined && (!Number.isFinite(tp) || tp <= 0 || (side==='Long' ? tp <= asset.price : tp >= asset.price)))
