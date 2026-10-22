@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type {Asset} from '../types';
 import {
   emptyPaperPortfolio,placePaperPosition,closePaperPosition,markPaperPositions,
-  recalculatePaperPortfolio,isFreshPaperQuote,paperCommission,enableTrailingPaperStop,
+  recalculatePaperPortfolio,isFreshPaperQuote,paperCommission,enableTrailingPaperStop,disableTrailingPaperStop,updatePaperStops,
   configurePaperPortfolio,accountLeverage,normalizePaperSettings,DEFAULT_PAPER_SETTINGS,
 } from './paperTrading';
 import {createPaperAccountRecord,initialPaperAccounts,updateActivePaperAccount} from './paperAccounts';
@@ -94,4 +94,12 @@ closeTo(retreating.positions[0].sl!,104.5);
 const trailingClosed=markPaperPositions(retreating,{...asset,price:104,quoteUpdatedAt:now+3000},now+3000);
 assert.equal(trailingClosed.positions.length,0);
 assert.throws(()=>enableTrailingPaperStop(trailingBase,trailingBase.positions[0].id,0),/Trailing stop/);
+const disabledTrail=disableTrailingPaperStop(advancing,advancing.positions[0].id);
+assert.equal(disabledTrail.positions[0].trailingPercent,undefined);
+closeTo(disabledTrail.positions[0].sl!,104.5); // locked stop remains
+const followingDisable=markPaperPositions(disabledTrail,{...asset,price:120,quoteUpdatedAt:now+2000},now+2000);
+closeTo(followingDisable.positions[0].sl!,104.5); // no more trailing
+const noLoosening=updatePaperStops(advancing,advancing.positions[0].id,undefined,90);
+closeTo(noLoosening.positions[0].sl!,104.5);
+assert.throws(()=>disableTrailingPaperStop(empty,'fake'),/Position unavailable/);
 console.log('Paper accounts: free default, fixed/%/per-contract fees, leverage, P&L, stops, migration model and independent ledgers passed.');
