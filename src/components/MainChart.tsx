@@ -314,7 +314,18 @@ export const MainChart = React.memo(
     // Populate Series & Indicators or Incremental Real-time Update
     useEffect(() => {
       const chart = chartApiRef.current;
-      if (!chart || candles.length === 0) return;
+      if (!chart) return;
+      if (candles.length === 0) {
+        // A missing/blocked market must never display a prior symbol's series.
+        // Clear all price/indicator panes until a verified feed supplies bars.
+        for (const series of activeSeriesRef.current) {
+          try { chart.removeSeries(series); } catch { /* already detached */ }
+        }
+        activeSeriesRef.current = [];
+        mainSeriesRef.current = null;
+        seriesBundleRef.current = null;
+        return;
+      }
 
       const chartCandles =
         chartType === 'heikin-ashi' ? convertToHeikinAshi(candles) : candles;
