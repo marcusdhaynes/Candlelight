@@ -302,7 +302,7 @@ export const LeftDrawingToolbar: React.FC<LeftDrawingToolbarProps> = React.memo(
   setIsLocked,
 }) => {
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
-  const [isLineMenuOpen, setIsLineMenuOpen] = useState(true);
+  const [isLineMenuOpen, setIsLineMenuOpen] = useState(false);
   const lineMenuRef = useRef<HTMLDivElement>(null);
   const lineBtnRef = useRef<HTMLDivElement>(null);
 
