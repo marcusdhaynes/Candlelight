@@ -11,7 +11,7 @@ const groups: Record<MarketSourceKind, string> = {
   DATA: `NASDAQ|NYSE|NYSE Arca|AMEX|CBOE|CME|COMEX|CBOT|NYMEX|ICE|ICE Data Services|CoinDesk Indices|Coin Metrics|BCHAIN (Nasdaq Data Link)|Nasdaq Data Link|Glassnode|CoinGecko|CoinMarketCap|CryptoCompare|Kaiko|CoinAPI|CoinPaprika|DefiLlama Data|LunarCrush Data|Trading Economics|ECONOMICS|TVC|DJ|FXCM Indices|FTSE Russell|MSCI|S&P Dow Jones Indices|FRED|Federal Reserve|US Treasury|Bureau of Labor Statistics|Bureau of Economic Analysis|SEC EDGAR|World Bank|IMF|OECD|Eurostat|Euronext|Eurex|LSE|JPX|TSX|HKEX|SGX|BSE|NSE|ASX|Coinbase Index|Santiment|Messari|Pyth Network|Chainlink Data Streams|Finviz|Financial Modeling Prep|Alpha Vantage|Finnhub|Twelve Data|Polygon (Massive)|Alpaca Market Data|Tiingo|Stooq|EODHD|Marketstack|Barchart|Intrinio|Bloomberg|Reuters|LSEG|Refinitiv|Quandl|TradingView|CoinGlass|CoinAnk|Coinalyze|Alternative.me|LunarCrush|DefiLlama|Pyth`,
 };
 export interface MarketSource { name: string; kind: MarketSourceKind; directFeed: boolean }
-const supported = new Set(['Kraken', 'Kraken Futures', 'Coinbase', 'Binance', 'Binance.US', 'OKX', 'Bybit']);
+const supported = new Set(['Kraken', 'Kraken Futures', 'Coinbase', 'Binance', 'Binance.US', 'OKX', 'Bybit', 'Hyperliquid (Hyperliquid)']);
 export const MARKET_SOURCES: MarketSource[] = Object.entries(groups)
   .flatMap(([kind, raw]) => raw.split('|').map(name => ({
     name, kind: kind as MarketSourceKind, directFeed: supported.has(name),
