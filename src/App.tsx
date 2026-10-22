@@ -41,7 +41,7 @@ import { BottomToolbar } from './components/BottomToolbar';
 import { BottomTradingPanel } from './components/BottomTradingPanel';
 import { PaperTradeTicket } from './components/PaperTradeTicket';
 import { PaperAccountModal } from './components/PaperAccountModal';
-import { evaluatePaperOrders,submitPaperOrder,type PaperOrderRequest } from './services/paperOrders';
+import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
 import { AlertsModal } from './components/AlertsModal';
@@ -871,6 +871,7 @@ export default function App() {
     try { setPaperPortfolio(updatePaperStops(paperPortfolio,id,tp,sl)); setPaperError(''); }
     catch(e){ setPaperError(e instanceof Error ? e.message : 'Invalid stops'); }
   };
+  const handleCancelPendingOrder=(id:string)=>{setPaperPortfolio(p=>cancelPaperOrder(p,id));setPaperError('');};
   const handleResetPaper = () => {
     setPaperPortfolio(emptyPaperPortfolio(paperPortfolio.settings,paperPortfolio.account.name));
     setConditionalOrders([]);
@@ -1211,6 +1212,8 @@ export default function App() {
             onDeletePaperAccount={deletePaperAccount}
             paperSettings={paperPortfolio.settings}
             onClosePosition={handleClosePosition}
+            pendingOrders={paperPortfolio.pendingOrders||[]}
+            onCancelPendingOrder={handleCancelPendingOrder}
             activeAsset={activeAsset}
             onPlacePosition={handlePlacePaperPosition}
             onEditPosition={handleEditPaperStops}
