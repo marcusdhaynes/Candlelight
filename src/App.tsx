@@ -39,6 +39,9 @@ import { LAYOUT_TEMPLATES, DEFAULT_SYNC_SETTINGS, getLayoutTemplateById } from '
 import { RightSidebar, RightSidebarTab } from './components/RightSidebar';
 import { BottomToolbar } from './components/BottomToolbar';
 import { BottomTradingPanel } from './components/BottomTradingPanel';
+import { PaperTradeTicket } from './components/PaperTradeTicket';
+import { PaperAccountModal } from './components/PaperAccountModal';
+import { evaluatePaperOrders,submitPaperOrder,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
 import { AlertsModal } from './components/AlertsModal';
@@ -221,7 +224,9 @@ export default function App() {
     setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
       orders:typeof action==='function'?action(record.orders):action})));
   const [paperError,setPaperError]=useState('');
-  const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange)))].join('~');
+  const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>
+    [...a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange),
+     ...(a.portfolio.pendingOrders||[]).map(o=>o.symbol+'|'+o.exchange)]))].join('~');
   useEffect(()=>{
     const keys=heldMarketKeys.split('~').filter(Boolean);
     if(!keys.length)return;
@@ -236,7 +241,7 @@ export default function App() {
       }));
       if(cancelled)return;
       setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
-        portfolio:quotes.reduce((p,q)=>q?markPaperPositions(p,q):p,a.portfolio)}))}));
+        portfolio:quotes.reduce((p,q)=>q?evaluatePaperOrders(p,q):p,a.portfolio)}))}));
     };
     void refresh();
     const timer=window.setInterval(()=>{void refresh();},20000);
@@ -269,6 +274,8 @@ export default function App() {
   };
   useEffect(()=>{try{savePaperAccounts(paperAccounts);}catch(e){console.warn('Unable to persist paper accounts',e);}},[paperAccounts]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
+  const [isTradeTicketOpen,setIsTradeTicketOpen]=useState(false);
+  const [tradeTicketAccountSettings,setTradeTicketAccountSettings]=useState(false);
   const [isBottomTradingExpanded, setIsBottomTradingExpanded] = useState(false);
 
   // State: Order Book & Trades
@@ -788,7 +795,7 @@ export default function App() {
           const quote={...activeAsset,price:newPrice,quoteUpdatedAt:now,
             quoteStatus:activeAsset.pairAddress?'delayed' as const:'live' as const};
           setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
-            portfolio:markPaperPositions(a.portfolio,quote,now)}))}));
+            portfolio:evaluatePaperOrders(a.portfolio,quote,now)}))}));
         }
       },
 
@@ -835,12 +842,17 @@ export default function App() {
     };
   }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe]);
 
-  // Paper trading actions settle fees, margin, and P&L in one atomic portfolio update.
-  const handlePlacePaperPosition = (side:'Long'|'Short',qty:number,leverage:number,tp?:number,sl?:number) => {
+  // All new paper trades must pass through the validated right-side order ticket.
+  const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
     try {
-      const next = placePaperPosition(paperPortfolio,activeAsset,side,qty,leverage,tp,sl);
-      setPaperPortfolio(next); setPaperError('');
-    } catch(e) { setPaperError(e instanceof Error ? e.message : 'Order rejected'); }
+      const next=submitPaperOrder(paperPortfolio,activeAsset,request);
+      setPaperPortfolio(next);setPaperError('');
+      if(request.kind!=='market')setIsBottomTradingOpen(true);
+      return null;
+    }catch(e){
+      const message=e instanceof Error?e.message:'Unable to submit paper order';
+      setPaperError(message);return message;
+    }
   };
   const handleClosePosition = (id:string) => {
     const p = paperPositions.find(x=>x.id===id);
@@ -1115,7 +1127,7 @@ export default function App() {
         onToggleFullscreen={handleToggleFullscreen}
         onSelectQuickTool={(tool) => setActiveTool(tool)}
         activeTool={activeTool}
-        onToggleTradingPanel={() => setIsBottomTradingOpen((prev) => !prev)}
+        onToggleTradingPanel={() => setIsTradeTicketOpen(prev=>!prev)}
         marketStatus={marketStatus}
         currentTemplateId={currentTemplateId}
         onSelectTemplate={handleSelectTemplate}
@@ -1189,6 +1201,7 @@ export default function App() {
 
           {/* Bottom Trading Dock (Paper Trading Panel) */}
           <BottomTradingPanel
+            onOpenTicket={()=>setIsTradeTicketOpen(true)}
             account={paperAccount}
             positions={paperPositions}
             paperAccounts={paperAccounts.accounts}
@@ -1228,6 +1241,15 @@ export default function App() {
           />
         </div>
 
+        {/* Live market order entry slides in from the right; none is open at startup. */}
+        <PaperTradeTicket open={isTradeTicketOpen} onClose={()=>setIsTradeTicketOpen(false)}
+          asset={activeAsset} portfolio={paperPortfolio} bids={orderBook.bids} asks={orderBook.asks}
+          onSubmit={handleSubmitTicketOrder} error={paperError}
+          onOpenAccount={()=>setTradeTicketAccountSettings(true)}/>
+        {tradeTicketAccountSettings&&<PaperAccountModal existing={activePaperRecord}
+          proposedName={paperAccount.name}
+          onClose={()=>setTradeTicketAccountSettings(false)}
+          onSave={(name,settings)=>savePaperAccount(paperAccounts.activeId,name,settings)}/>}
         {/* Right Dock / Sidebar */}
         <RightSidebar
           assets={assets}
