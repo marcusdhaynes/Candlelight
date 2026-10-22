@@ -171,9 +171,23 @@ export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now(
   // Execute TP/SL on the real observed tick (not an optimistic assumed fill).
   for(const p of [...next.positions]){
     if(p.symbol!==asset.symbol||p.exchange!==venue)continue;
-    const hitTP=p.tp!==undefined&&(p.side==='Long'?asset.price>=p.tp:asset.price<=p.tp);
     const hitSL=p.sl!==undefined&&(p.side==='Long'?asset.price<=p.sl:asset.price>=p.sl);
-    if(hitTP||hitSL)next=closePaperPosition(next,p.id,asset.price,undefined,at);
+    if(hitSL){next=closePaperPosition(next,p.id,asset.price,undefined,at);continue;}
+    if(p.tpLevels?.length){
+      for(const level of p.tpLevels){
+        const hit=p.side==='Long'?asset.price>=level.price:asset.price<=level.price;
+        const current=next.positions.find(x=>x.id===p.id);
+        if(!hit||!current)continue;
+        const quantity=Math.min(current.qty,level.quantity);
+        if(quantity<=0)continue;
+        next=closePaperPosition(next,p.id,asset.price,quantity,at);
+        next={...next,positions:next.positions.map(q=>q.id===p.id?
+          {...q,tpLevels:q.tpLevels?.filter(x=>x.id!==level.id)}:q)};
+      }
+    }else{
+      const hitTP=p.tp!==undefined&&(p.side==='Long'?asset.price>=p.tp:asset.price<=p.tp);
+      if(hitTP)next=closePaperPosition(next,p.id,asset.price,undefined,at);
+    }
   }
   return next;
 }
