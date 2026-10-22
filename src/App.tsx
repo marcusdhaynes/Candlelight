@@ -41,7 +41,7 @@ import { BottomToolbar } from './components/BottomToolbar';
 import { BottomTradingPanel } from './components/BottomTradingPanel';
 import { PaperTradeTicket } from './components/PaperTradeTicket';
 import { PaperAccountModal } from './components/PaperAccountModal';
-import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,type PaperOrderRequest } from './services/paperOrders';
+import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,estimatePaperQty,withOrderReservations,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
 import { AlertsModal } from './components/AlertsModal';
@@ -51,7 +51,7 @@ import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
-import { emptyPaperPortfolio, placePaperPosition, closePaperPosition, markPaperPositions, updatePaperStops, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
+import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
@@ -929,45 +929,70 @@ export default function App() {
   }, []);
 
   const executeOrderAction = useCallback(
-    (order: ConditionalOrder, _triggerPrice:number) => {
-      if(order.symbol!==activeAsset.symbol || !isFreshPaperQuote(activeAsset)) {
-        setPaperError('Conditional order requires the correct market and a fresh live quote.');
+    (order:ConditionalOrder,_triggerPrice:number)=>{
+      if(order.symbol!==activeAsset.symbol||!isFreshPaperQuote(activeAsset)){
+        setPaperError('Conditional order needs a fresh quote from the selected market.');
         return;
       }
-      const side = order.action==='enter_short'?'Short':'Long';
-      const qty = Number(order.execution.size) || 0;
-      try {
-        let next:PaperPortfolio = paperPortfolio;
-        if(order.action==='enter_long'||order.action==='enter_short') {
-          const price=activeAsset.price;
-          next=placePaperPosition(next,activeAsset,side,qty,accountLeverage(next.settings,activeAsset),
-            order.execution.tpPercent ? price*(1+(side==='Long'?1:-1)*order.execution.tpPercent/100):undefined,
-            order.execution.slPercent ? price*(1-(side==='Long'?1:-1)*order.execution.slPercent/100):undefined);
-        } else if(order.action==='exit_long'||order.action==='exit_short') {
-          const match = next.positions.find(p=>p.symbol===order.symbol
-            && p.exchange===(activeAsset.source||activeAsset.exchange)
-            && p.side===(order.action==='exit_long'?'Long':'Short'));
-          if(!match) throw new Error('No corresponding position to close.');
-          next=closePaperPosition(next,match.id,activeAsset.price);
-        } else if(order.action==='reduce_position') {
-          const match = next.positions.find(p=>p.symbol===order.symbol &&
-            p.exchange===(activeAsset.source||activeAsset.exchange));
-          if(!match) throw new Error('No position to reduce.');
-          const pct=Number(order.execution.reducePercent)||50;
-          if(pct<=0||pct>100) throw new Error('Invalid reduction percentage.');
-          next=closePaperPosition(next,match.id,activeAsset.price,match.qty*pct/100);
-        } else if(order.action==='increase_position') {
-          const match = next.positions.find(p=>p.symbol===order.symbol &&
-            p.exchange===(activeAsset.source||activeAsset.exchange));
-          if(!match) throw new Error('No position to increase.');
-          next=placePaperPosition(next,activeAsset,match.side,qty,accountLeverage(next.settings,activeAsset));
-        } else throw new Error('Unsupported paper order action.');
+      try{
+        let next:PaperPortfolio=paperPortfolio;
+        const side=order.action==='enter_short'?'Short':'Long';
+        const spec=order.execution;
+        const qtyFor=(kind:'market'|'limit',price:number)=>{
+          if(spec.sizeUnit==='percent')return estimatePaperQty(next,activeAsset,spec.size,price);
+          if(spec.sizeUnit==='usd')return spec.size/price;
+          return spec.size;
+        };
+        const match=next.positions.find(p=>p.symbol===order.symbol
+          && p.exchange===(activeAsset.source||activeAsset.exchange));
+        if(order.action==='enter_long'||order.action==='enter_short'){
+          const kind=spec.orderType==='limit'?'limit':'market';
+          const price=kind==='limit'?(spec.limitPrice||0):activeAsset.price;
+          const tp=spec.tpPrice||(spec.tpPercent?
+            price*(1+(side==='Long'?1:-1)*spec.tpPercent/100):undefined);
+          const sl=spec.slPrice||(spec.slPercent?
+            price*(1-(side==='Long'?1:-1)*spec.slPercent/100):undefined);
+          next=submitPaperOrder(next,activeAsset,{side,kind,qty:qtyFor(kind,price),
+            price:kind==='limit'?price:undefined,tp,sl,timeInForce:'GTC'});
+        }else if(order.action==='increase_position'){
+          if(!match)throw new Error('No position to increase.');
+          next=submitPaperOrder(next,activeAsset,{side:match.side,kind:'market',
+            qty:qtyFor('market',activeAsset.price)});
+        }else if(order.action==='exit_long'||order.action==='exit_short'){
+          const expected=order.action==='exit_long'?'Long':'Short';
+          if(!match||match.side!==expected)throw new Error('No matching position to close.');
+          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price));
+        }else if(order.action==='tp'){
+          if(!match)throw new Error('No position for take profit.');
+          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price));
+        }else if(order.action==='reduce_position'){
+          if(!match)throw new Error('No position to reduce.');
+          const percent=Number(spec.reducePercent)||50;
+          if(percent<=0||percent>100)throw new Error('Invalid reduction percentage.');
+          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price,match.qty*percent/100));
+        }else if(order.action==='sl_set'){
+          if(!match)throw new Error('No position to protect.');
+          const value=spec.slPrice||(spec.slPercent?
+            match.entryPrice*(1-(match.side==='Long'?1:-1)*spec.slPercent/100):undefined);
+          if(!value)throw new Error('Choose a valid stop-loss price.');
+          if(match.side==='Long'?value>=activeAsset.price:value<=activeAsset.price)
+            throw new Error('Stop loss must be protective relative to the latest quote.');
+          next=updatePaperStops(next,match.id,match.tp,value);
+        }else if(order.action==='sl_trailing'){
+          if(!match)throw new Error('No position for trailing stop.');
+          next=enableTrailingPaperStop(next,match.id,Number(spec.trailingPercent));
+        }else if(order.action==='cancel_all'){
+          next=withOrderReservations({...next,pendingOrders:[]});
+        }else{
+          throw new Error('Unsupported paper order action.');
+        }
         setPaperPortfolio(next);
-        setConditionalOrders(prev=>prev.map(o=>o.id!==order.id?o:{...o,
-          triggerCount:o.triggerCount+1,lastTriggeredAt:Date.now(),
-          status:o.conditionLogic==='WHENEVER'?'active':'triggered'}));
+        setConditionalOrders(prev=>prev.map(o=>o.id!==order.id?o:{
+          ...o,triggerCount:o.triggerCount+1,lastTriggeredAt:Date.now(),
+          status:o.conditionLogic==='WHENEVER'?'active':'triggered',
+        }));
         setPaperError('');
-      } catch(e) {setPaperError(e instanceof Error?e.message:'Conditional order rejected');}
+      }catch(e){setPaperError(e instanceof Error?e.message:'Conditional order rejected');}
     },
     [activeAsset,paperPortfolio]
   );
@@ -984,7 +1009,8 @@ export default function App() {
     if (conditionalOrders.length === 0 || !isFreshPaperQuote(activeAsset)) return;
     const curPrice = activeAsset.price;
     const activeRules = conditionalOrders.filter(
-      (o) => o.status === 'active' && o.symbol === activeAsset.symbol
+      (o) => o.status === 'active' && o.symbol === activeAsset.symbol &&
+        o.triggerCount < (o.maxTriggers||9999)
     );
 
     activeRules.forEach((order) => {
