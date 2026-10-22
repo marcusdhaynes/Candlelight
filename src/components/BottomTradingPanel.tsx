@@ -5,6 +5,7 @@ import type {Asset, PaperAccount, PaperPosition} from '../types';
 import type {ConditionalOrder,DependencyContext} from '../types/conditionalOrders';
 import type {PaperFill} from '../services/paperTrading';
 import {accountLeverage,isFreshPaperQuote,marketPaperCategory,type PaperSettings} from '../services/paperTrading';
+import type {PaperEntryOrder} from '../services/paperOrders';
 import type {PaperAccountRecord} from '../services/paperAccounts';
 import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
@@ -18,6 +19,9 @@ export interface BottomTradingPanelProps {
   onSavePaperAccount:(id:string|null,name:string,settings:PaperSettings)=>void;
   onDeletePaperAccount:(id:string)=>void;
   onClosePosition:(id:string)=>void;
+  onOpenTicket:()=>void;
+  pendingOrders:PaperEntryOrder[];
+  onCancelPendingOrder:(id:string)=>void;
   onPlacePosition:(side:'Long'|'Short',qty:number,leverage:number,tp?:number,sl?:number)=>void;
   onEditPosition:(id:string,tp?:number,sl?:number)=>void;
   onResetPaper:()=>void; paperError:string; fills:PaperFill[];
@@ -41,6 +45,7 @@ const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFra
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   account,positions,activeAsset,onClosePosition,onPlacePosition,onEditPosition,onResetPaper,paperError,fills,
+  onOpenTicket,pendingOrders,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
   onDeleteConditionalOrder,onTestTriggerConditionalOrder,isOpen,setIsOpen,isExpanded,setIsExpanded,
@@ -118,37 +123,20 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
         <button type="button" onClick={()=>setIsOpen(false)} title="Close paper panel"><Minus size={14}/></button>
       </div>
     </header>
-    <div className="flex items-center gap-2 flex-wrap bg-[#1b202d] border-b border-[#303645] px-2 py-1.5 text-[11px]">
-      <strong className="text-white">{activeAsset.symbol}</strong>
-      <span className={live?'text-[#089981]':'text-[#f4b77c]'}>{live?`Live ${amount(activeAsset.price)} ${activeAsset.currency}`:'Waiting for a real-time exchange quote'}</span>
-      <label className="flex items-center gap-1">Qty
-        <input aria-label="Order quantity" value={quantity} onChange={e=>setQuantity(e.target.value)}
-          type="number" step="any" min="0" className="w-[76px] bg-[#101622] border border-[#3c4353] rounded px-1.5 py-1 text-white"/>
-      </label>
-      <span className="text-[#aeb7ca]" title="Change leverage in the account settings gear">
-        {activeCategory} · {activeLeverage}×
-      </span>
-      <label className="flex items-center gap-1">TP
-        <input aria-label="Take profit" type="number" min="0" step="any" placeholder="Optional" value={tp}
-          onChange={e=>setTp(e.target.value)} className="w-[78px] bg-[#101622] border border-[#3c4353] rounded px-1 py-1 text-white"/>
-      </label>
-      <label className="flex items-center gap-1">SL
-        <input aria-label="Stop loss" type="number" min="0" step="any" placeholder="Optional" value={sl}
-          onChange={e=>setSl(e.target.value)} className="w-[78px] bg-[#101622] border border-[#3c4353] rounded px-1 py-1 text-white"/>
-      </label>
-      <button type="button" disabled={!live||!(Number(quantity)>0)} className="px-2.5 py-1 rounded bg-[#0b866a] font-bold text-white disabled:opacity-30 disabled:cursor-not-allowed"
-        onClick={()=>onPlacePosition('Long',Number(quantity),activeLeverage,tp?Number(tp):undefined,sl?Number(sl):undefined)}>Buy / Long</button>
-      <button type="button" disabled={!live||!(Number(quantity)>0)} className="px-2.5 py-1 rounded bg-[#b2324b] font-bold text-white disabled:opacity-30 disabled:cursor-not-allowed"
-        onClick={()=>onPlacePosition('Short',Number(quantity),activeLeverage,tp?Number(tp):undefined,sl?Number(sl):undefined)}>Sell / Short</button>
+    <div className="flex items-center gap-2 flex-wrap bg-[#1b202d] border-b border-[#303645] px-3 py-2 text-[11px]">
+      <strong>{activeAsset.symbol}</strong>
+      <span className={live?'text-[#089981]':'text-[#f4b77c]'}>{live?'Live reference '+amount(activeAsset.price)+' '+activeAsset.currency:'Live price unavailable'}</span>
+      <span className="text-[#aeb7ca]">{activeCategory} · {activeLeverage}×</span>
       <span className="text-[#9299aa]">{feeDescription}</span>
+      <button type="button" onClick={onOpenTicket} className="rounded bg-[#2862fb] px-3 py-1.5 font-semibold text-white hover:bg-[#477bf9]">Create order</button>
       <button type="button" className="ml-auto px-2 py-1 border border-[#5e5460] rounded hover:bg-[#393342]"
-        onClick={()=>{if(window.confirm('Reset '+account.name+' to '+paperSettings.startingBalance.toLocaleString()+' '+paperSettings.currency+' and erase this account’s positions, trades and orders?'))onResetPaper();}}>Reset account</button>
+        onClick={()=>{if(window.confirm('Reset '+account.name+' and erase all its positions, pending orders, fills and conditional rules?'))onResetPaper();}}>Reset account</button>
     </div>
     {paperError&&<div role="alert" className="px-3 py-1 text-[11px] text-[#ffc5c5] bg-[#51202b]">{paperError}</div>}
     <nav className="flex flex-wrap items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
       {tabs.map(([id,name])=><button type="button" key={id} onClick={()=>setTab(id)}
         className={`rounded px-2 py-1 ${tab===id?'bg-[#2a3142] text-white':'text-[#9197a5] hover:bg-[#212633]'}`}>
-        {name}{id==='positions'?` (${positions.length})`:id==='orders'?` (${conditionalOrders.length})`:''}
+        {name}{id==='positions'?` (${positions.length})`:id==='orders'?` (${conditionalOrders.length+pendingOrders.length})`:''}
       </button>)}
       <button type="button" className="ml-auto px-2 text-[#a5aabc]" title="Export trade history as CSV" onClick={exportCsv}><Download size={15}/></button>
     </nav>
@@ -178,9 +166,22 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
         </React.Fragment>)}
         {positions.length===0&&<tr><td colSpan={10} className="text-center p-5 text-[#8792a6]">No open paper positions. Enter a quantity, wait for a verified live quote, then buy or short.</td></tr>}
       </tbody></table>}
-      {tab==='orders'&&<ConditionalOrdersTable orders={conditionalOrders} onOpenCreateModal={()=>onOpenCreateConditionalOrder(null)}
-        onEditOrder={onEditConditionalOrder} onToggleStatus={onToggleConditionalOrderStatus}
-        onDeleteOrder={onDeleteConditionalOrder} onTestTrigger={onTestTriggerConditionalOrder}/>}
+      {tab==='orders'&&<div className="space-y-2">
+        <div className="flex justify-between items-center px-3 pt-2">
+          <strong className="text-[#e6e9f0]">Pending limit / stop orders ({pendingOrders.length})</strong>
+          <button className="text-[#79aaff]" onClick={onOpenTicket}>+ Create order</button>
+        </div>
+        {pendingOrders.map(o=><div key={o.id} className="border-b border-[#313641] p-2 flex items-center gap-3 flex-wrap">
+          <strong>{o.symbol}</strong><span className={o.side==='Long'?'text-[#2cbd99]':'text-[#f06a7b]'}>{o.side}</span>
+          <span>{o.kind.toUpperCase()} @ {amount(o.price)}</span><span>{amount(o.qty)} units · {o.exchange}</span>
+          <span className="text-[#adb4c3]">Expires: {o.expiresAt?new Date(o.expiresAt).toLocaleString():'GTC'}</span>
+          <button className="ml-auto text-[#f58b95] hover:underline" onClick={()=>onCancelPendingOrder(o.id)}>Cancel</button>
+        </div>)}
+        {!pendingOrders.length&&<p className="text-[#838b9d] px-3 py-2">No pending entries.</p>}
+        <div className="border-t border-[#313641]"><ConditionalOrdersTable orders={conditionalOrders} onOpenCreateModal={()=>onOpenCreateConditionalOrder(null)}
+          onEditOrder={onEditConditionalOrder} onToggleStatus={onToggleConditionalOrderStatus}
+          onDeleteOrder={onDeleteConditionalOrder} onTestTrigger={onTestTriggerConditionalOrder}/></div>
+      </div>}
       {['orderHistory','balanceHistory','activityLog','tradeHistory'].includes(tab)&&<div>
         {fills.length?fills.map(f=><div key={f.id} className="grid grid-cols-6 gap-2 p-2 border-b border-[#313641]">
           <span>{new Date(f.timestamp).toLocaleString()}</span><span>{f.exchange} · {f.symbol}</span>
