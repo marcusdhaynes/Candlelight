@@ -24,7 +24,7 @@ export function PaperAccountModal({existing,proposedName,onClose,onSave,onDelete
   const [name,setName]=useState(existing?.portfolio.account.name||proposedName);
   const [settings,setSettings]=useState<PaperSettings>(()=>normalizePaperSettings(existing?.portfolio.settings||DEFAULT_PAPER_SETTINGS));
   const [error,setError]=useState('');
-  const locked=!!existing&&(existing.portfolio.positions.length>0||existing.portfolio.fills.length>0);
+  const locked=!!existing&&(existing.portfolio.positions.length>0||existing.portfolio.fills.length>0||(existing.portfolio.pendingOrders?.length||0)>0);
   useEffect(()=>{
     const esc=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};
     window.addEventListener('keydown',esc);return()=>window.removeEventListener('keydown',esc);
