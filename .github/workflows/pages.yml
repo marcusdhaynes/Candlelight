@@ -25,6 +25,12 @@ jobs:
       - run: pnpm run build
         env:
           GITHUB_PAGES: 'true'
+      - name: Install browser test dependencies
+        run: npm install --prefix tests/e2e --no-package-lock --ignore-scripts
+      - name: Install Chromium
+        run: cd tests/e2e && npx playwright install --with-deps chromium
+      - name: Exercise workspace controls in Chromium
+        run: cd tests/e2e && npm test
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: dist
