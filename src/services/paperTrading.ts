@@ -1,5 +1,5 @@
 import type { Asset, PaperAccount, PaperPosition } from '../types';
-import type { PaperEntryOrder } from './paperOrders';
+import type { PaperEntryOrder,PaperOrderEvent } from './paperOrders';
 
 export const PAPER_STARTING_BALANCE = 10000;
 export type PaperCommission = { enabled:boolean; mode:'fixed'|'percent'; amount:number };
@@ -60,6 +60,7 @@ export interface PaperPortfolio {
   positions: PaperPosition[];
   fills: PaperFill[];
   pendingOrders?: PaperEntryOrder[];
+  orderEvents?:PaperOrderEvent[];
 }
 export function emptyPaperPortfolio(settings:PaperSettings=DEFAULT_PAPER_SETTINGS,name='Primary 001'): PaperPortfolio {
   const safe=normalizePaperSettings(settings);
@@ -70,7 +71,7 @@ export function emptyPaperPortfolio(settings:PaperSettings=DEFAULT_PAPER_SETTING
     accountMargin: 0, availableFunds: safe.startingBalance,
     ordersMargin: 0, marginBuffer: 100,
   };
-  return { account, settings:safe, positions: [], fills: [], pendingOrders: [] };
+  return { account, settings:safe, positions: [], fills: [], pendingOrders: [],orderEvents:[] };
 }
 export const positionPnL = (p: PaperPosition, marketPrice: number) =>
   (p.side === 'Long' ? 1 : -1) * (marketPrice - p.entryPrice) * p.qty;
@@ -96,7 +97,7 @@ export const isFreshPaperQuote = (asset: Asset, now = Date.now()): boolean =>
   !!asset.quoteUpdatedAt && now >= asset.quoteUpdatedAt && now - asset.quoteUpdatedAt < 30_000;
 export function placePaperPosition(
   input: PaperPortfolio, asset: Asset, side: 'Long' | 'Short',
-  quantity: number, leverage = 1, tp?: number, sl?: number, at = Date.now()
+  quantity: number, leverage = 1, tp?: number, sl?: number, at = Date.now(), executionKind='market'
 ): PaperPortfolio {
   if (!isFreshPaperQuote(asset, at)) throw new Error('A verified, recent live quote is required to open a position.');
   if (asset.currency !== input.settings.currency)
@@ -127,7 +128,7 @@ export function placePaperPosition(
     positions: [position,...portfolio.positions],
     fills: [{id:id+'-open',positionId:id, symbol:position.symbol,exchange:position.exchange,
       side: side === 'Long' ? 'Buy' : 'Sell',quantity,price:asset.price,fee:entryFee,
-      realizedPnL:-entryFee,timestamp:at,note:'Open (simulated market fill)'},
+      realizedPnL:-entryFee,timestamp:at,note:`Open (simulated ${executionKind} fill)`},
       ...portfolio.fills],
   });
 }
