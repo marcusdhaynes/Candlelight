@@ -3,7 +3,7 @@ import type {Asset} from '../types';
 import {emptyPaperPortfolio} from './paperTrading';
 import {
   submitPaperOrder,cancelPaperOrder,evaluatePaperOrders,pendingFor,withOrderReservations,
-  estimatePaperQty,exitPriceFromValue,exitValueFromPrice,
+  estimatePaperQty,paperRiskSizedQty,exitPriceFromValue,exitValueFromPrice,
 } from './paperOrders';
 const now=1_700_000_000_000;
 const asset:Asset={symbol:'BTCUSD',name:'BTC / USD',exchange:'Kraken',source:'Kraken',
@@ -107,3 +107,30 @@ assert.throws(()=>submitPaperOrder(empty,asset,{
 assert.throws(()=>submitPaperOrder(empty,asset,{
   side:'Long',kind:'market',qty:1,trailingStopPercent:100},now),/Trailing stop/);
 console.log('Paper order tests passed: market/limit/stop, margin reservations, fills, expiry, cancellation, both sides and exit conversions.');
+
+const stopLimit=submitPaperOrder(empty,asset,{
+  side:'Long',kind:'stop-limit',qty:2,price:105,limitPrice:104,timeInForce:'GTC'
+},now);
+approx(stopLimit.account.ordersMargin,208);
+const untriggered=evaluatePaperOrders(stopLimit,fresh(103,now+1000),now+1000);
+assert.equal(untriggered.pendingOrders?.[0].status,'pending');
+const activated=evaluatePaperOrders(untriggered,fresh(108,now+2000),now+2000);
+assert.equal(activated.positions.length,0);
+assert.equal(activated.pendingOrders?.[0].status,'triggered');
+const activatedStillWaiting=evaluatePaperOrders(activated,fresh(106,now+3000),now+3000);
+assert.equal(activatedStillWaiting.positions.length,0);
+const stopLimitFilled=evaluatePaperOrders(activatedStillWaiting,fresh(103,now+4000),now+4000);
+assert.equal(stopLimitFilled.positions.length,1);
+approx(stopLimitFilled.positions[0].entryPrice,103);
+assert.equal(stopLimitFilled.pendingOrders?.length,0);
+assert.throws(()=>submitPaperOrder(empty,asset,{
+  side:'Long',kind:'stop-limit',qty:2,price:105,limitPrice:0
+},now),/stop-limit execution price/);
+assert.throws(()=>submitPaperOrder(empty,asset,{
+  side:'Long',kind:'stop-limit',qty:2,price:99,limitPrice:98
+},now),/Stop entry/);
+approx(paperRiskSizedQty(100,95,250),50);
+approx(paperRiskSizedQty(100,105,250),50);
+assert.equal(paperRiskSizedQty(100,100,250),0);
+assert.equal(paperRiskSizedQty(100,95,-10),0);
+console.log('TradingView-style stop-limit trigger/resting execution and cash-risk sizing passed.');
