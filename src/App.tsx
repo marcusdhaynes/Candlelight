@@ -52,7 +52,7 @@ import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
-import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
+import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
@@ -242,6 +242,8 @@ export default function App() {
     setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
       orders:typeof action==='function'?action(record.orders):action})));
   const [paperError,setPaperError]=useState('');
+  const [closeReviewId,setCloseReviewId]=useState<string|null>(null);
+  const [closeReviewQty,setCloseReviewQty]=useState('');
   const previousRulePrices=useRef<Record<string,number>>({});
   const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>
     [...a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange),
@@ -896,18 +898,29 @@ export default function App() {
       setPaperError(message);return message;
     }
   };
-  const handleClosePosition = (id:string) => {
-    const p = paperPositions.find(x=>x.id===id);
-    if(!p) return;
-    const now=Date.now();
-    if(!p.lastMarkedAt || now-p.lastMarkedAt > 30000) {
+  const executeClosePosition = (id:string,quantity?:number) => {
+    const p=paperPositions.find(x=>x.id===id);
+    if(!p)return;
+    if(!p.lastMarkedAt || Date.now()<p.lastMarkedAt || Date.now()-p.lastMarkedAt>30000){
       setPaperError('Cannot close at an unverified stale price. Select the market and wait for its live quote.');
       return;
     }
     try {
-      setPaperPortfolio(closePaperPosition(paperPortfolio,id,p.currentPrice));
+      setPaperPortfolio(closePaperPosition(paperPortfolio,id,p.currentPrice,quantity));
+      setCloseReviewId(null);
       setPaperError('');
-    } catch(e) { setPaperError(e instanceof Error ? e.message : 'Close rejected'); }
+      setActiveNotification({id:String(Date.now()),message:`Simulated close: ${quantity??p.qty} ${p.symbol} at ${p.currentPrice}`,type:'info'});
+    } catch(e){setPaperError(e instanceof Error?e.message:'Close rejected');}
+  };
+  const handleClosePosition = (id:string) => {
+    const p=paperPositions.find(x=>x.id===id);
+    if(!p)return;
+    // TradingView's default is review-before-close. One-click is user opt-in.
+    let oneClick=false;
+    try {oneClick=localStorage.getItem('candlelight_paper_one_click_v1')==='true';}catch{}
+    if(oneClick){executeClosePosition(id);return;}
+    setCloseReviewQty(String(p.qty));
+    setCloseReviewId(id);
   };
   const handleEditPaperStops = (id:string,tp?:number,sl?:number,trailing?:number|null) => {
     try {
@@ -1194,6 +1207,20 @@ export default function App() {
   const activePosition =
     paperPositions.find(p => p.symbol===activeAsset.symbol &&
       p.exchange===(activeAsset.source||activeAsset.exchange)) || null;
+  const closeReviewPosition=paperPositions.find(p=>p.id===closeReviewId);
+  const closeQuantity=Number(closeReviewQty);
+  const closeValid=!!closeReviewPosition && Number.isFinite(closeQuantity) &&
+    closeQuantity>0 && closeQuantity<=closeReviewPosition.qty &&
+    !!closeReviewPosition.lastMarkedAt && Date.now()>=closeReviewPosition.lastMarkedAt &&
+    Date.now()-closeReviewPosition.lastMarkedAt<30000;
+  const closePreviewFee=closeReviewPosition&&Number.isFinite(closeQuantity)&&closeQuantity>0?
+    paperCommission(paperPortfolio.settings,{
+      category:closeReviewPosition.category||'crypto',
+      marketType:closeReviewPosition.marketType||'spot',
+    },closeQuantity,closeReviewPosition.currentPrice):0;
+  const closePreviewPnl=closeReviewPosition&&Number.isFinite(closeQuantity)?
+    (closeReviewPosition.side==='Long'?1:-1)*
+    (closeReviewPosition.currentPrice-closeReviewPosition.entryPrice)*closeQuantity-closePreviewFee:0;
 
   return (
     <div
@@ -1387,6 +1414,41 @@ export default function App() {
         />
       </div>
 
+      {closeReviewPosition&&<div className="fixed inset-0 z-[290] bg-black/70 flex items-center justify-center p-3"
+        role="presentation" onMouseDown={e=>{if(e.target===e.currentTarget)setCloseReviewId(null);}}>
+        <section role="dialog" aria-modal="true" aria-label="Review paper position close"
+          className="w-full max-w-[395px] rounded-xl border border-[#464d5c] bg-[#191d26] text-[#eff2fa] shadow-2xl p-5 space-y-4">
+          <div className="flex justify-between items-center"><strong>Close position · Paper Trading</strong>
+            <button title="Cancel close review" onClick={()=>setCloseReviewId(null)} className="text-[#a6adbd]">✕</button>
+          </div>
+          <p className="text-xs text-[#aab4c5]">Review the simulated close before executing. No real funds are involved.</p>
+          <div className="flex justify-between text-xs"><span>Market</span><strong>{closeReviewPosition.exchange}:{closeReviewPosition.symbol}</strong></div>
+          <div className="flex justify-between text-xs"><span>Position</span><strong>{closeReviewPosition.side} · {closeReviewPosition.qty} units</strong></div>
+          <label className="text-xs text-[#aab4c5] block">Quantity to close
+            <input type="number" min="0" step="any" max={closeReviewPosition.qty}
+              aria-label="Close quantity" value={closeReviewQty} onChange={e=>setCloseReviewQty(e.target.value)}
+              className="block w-full mt-1 bg-[#10151f] border border-[#4d5566] rounded-md px-3 py-2 text-white"/>
+          </label>
+          <div className="flex gap-2">
+            <button type="button" onClick={()=>setCloseReviewQty(String(closeReviewPosition.qty/2))}
+              className="rounded border border-[#4c5668] px-3 py-1.5 text-xs">50%</button>
+            <button type="button" onClick={()=>setCloseReviewQty(String(closeReviewPosition.qty))}
+              className="rounded border border-[#4c5668] px-3 py-1.5 text-xs">100%</button>
+          </div>
+          <div className="space-y-1.5 text-xs border-t border-[#373f4e] pt-3">
+            <div className="flex justify-between"><span>Last verified observed price</span><strong>{closeReviewPosition.currentPrice}</strong></div>
+            <div className="flex justify-between"><span>Est. closing commission</span><strong>{closePreviewFee.toFixed(4)} {paperPortfolio.settings.currency}</strong></div>
+            <div className="flex justify-between"><span>Est. realized P&amp;L</span><strong className={closePreviewPnl>=0?'text-[#24c39b]':'text-[#fc8290]'}>{closePreviewPnl.toFixed(4)} {paperPortfolio.settings.currency}</strong></div>
+          </div>
+          {!closeValid&&<p role="alert" className="text-[#f5a5b3] text-xs">Invalid close size or stale quote. Wait for a fresh observed market price.</p>}
+          {paperError&&<p role="alert" className="text-[#f5a5b3] text-xs">{paperError}</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={()=>setCloseReviewId(null)} className="rounded-md border border-[#4d5360] py-2 text-sm">Back</button>
+            <button disabled={!closeValid} onClick={()=>executeClosePosition(closeReviewPosition.id,closeQuantity)}
+              className="rounded-md bg-[#2962ff] disabled:bg-[#424957] py-2 text-sm font-semibold">Confirm close</button>
+          </div>
+        </section>
+      </div>}
       {/* Floating Notification Toast */}
       {activeNotification && (
         <div
