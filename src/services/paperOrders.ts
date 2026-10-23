@@ -32,7 +32,7 @@ export interface PaperOrderRequest {
   takeProfitLevels?:PaperPartialTarget[];
 }
 const finitePositive=(n:number)=>Number.isFinite(n)&&n>0;
-const recordEvent=(p:PaperPortfolio,order:Pick<PaperEntryOrder,'id'|'symbol'|'exchange'|'side'|'kind'|'qty'|'price'>,
+const recordEvent=(p:PaperPortfolio,order:Pick<PaperEntryOrder,'id'|'symbol'|'exchange'|'side'|'qty'|'price'> & {kind:PaperOrderKind},
   action:PaperOrderEvent['action'],at=Date.now(),price=order.price):PaperPortfolio=>({
     ...p,orderEvents:[{
       id:order.id+'-'+action+'-'+at,orderId:order.id,symbol:order.symbol,exchange:order.exchange,
