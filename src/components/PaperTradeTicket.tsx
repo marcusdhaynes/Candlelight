@@ -4,7 +4,7 @@ import type {Asset,OrderBookItem} from '../types';
 import type {PaperPortfolio} from '../services/paperTrading';
 import {accountLeverage,isFreshPaperQuote,paperCommission} from '../services/paperTrading';
 import type {PaperOrderKind,PaperOrderRequest,PaperOrderSide,PaperTimeInForce,PaperExitMode} from '../services/paperOrders';
-import {estimatePaperQty,exitPriceFromValue,exitValueFromPrice,pendingFor,withOrderReservations} from '../services/paperOrders';
+import {estimatePaperQty,paperRiskSizedQty,exitPriceFromValue,exitValueFromPrice,withOrderReservations} from '../services/paperOrders';
 
 interface Props{
   open:boolean;onClose:()=>void;asset:Asset;portfolio:PaperPortfolio;
@@ -62,9 +62,16 @@ function ExitField({kind,entry,qty,balance,side,tick,enabled,setEnabled,mode,set
 export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onSubmit,bids,asks,error,onOpenAccount})=>{
   const [side,setSide]=useState<PaperOrderSide>('Long');
   const [kind,setKind]=useState<PaperOrderKind>('market');
-  const [sizeMode,setSizeMode]=useState<'balance'|'units'|'notional'>('balance');
+  const [sizeMode,setSizeMode]=useState<'balance'|'units'|'notional'|'riskMoney'|'riskBalance'>('balance');
   const [sizeInput,setSizeInput]=useState('99');
   const [priceInput,setPriceInput]=useState('');
+  const [limitPriceInput,setLimitPriceInput]=useState('');
+  const [priceMode,setPriceMode]=useState<'price'|'offset'>('price');
+  const [reviewOpen,setReviewOpen]=useState(false);
+  const [oneClick,setOneClick]=useState(()=>{
+    try { return localStorage.getItem('candlelight_paper_one_click_v1')==='true'; }
+    catch { return false; }
+  });
   const [tif,setTif]=useState<PaperTimeInForce>('Week');
   const [dom,setDom]=useState(false);
   const [tpEnabled,setTpEnabled]=useState(false);
@@ -81,7 +88,11 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const [sizeMenu,setSizeMenu]=useState(false);
   const [errorLocal,setErrorLocal]=useState('');
   const venue=asset.source||asset.exchange;
-  useEffect(()=>{setPriceInput('');setErrorLocal('');setKind('market');setDom(false);setExtraTps([]);},[asset.symbol,venue]);
+  useEffect(()=>{setPriceInput('');setLimitPriceInput('');setErrorLocal('');setKind('market');setDom(false);setExtraTps([]);setReviewOpen(false);},[asset.symbol,venue]);
+  useEffect(()=>{
+    try {localStorage.setItem('candlelight_paper_one_click_v1',String(oneClick));}
+    catch { /* browser storage can be disabled */ }
+  },[oneClick]);
   useEffect(()=>{
     if(!open)return;
     const key=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};
@@ -90,17 +101,30 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   },[open,onClose]);
   const live=isFreshPaperQuote(asset);
   const mark=Number(asset.price);
-  const entry=kind==='market'?mark:Number(priceInput);
+  const tick=10**(-Math.min(Math.max(asset.digits||2,0),10));
+  const triggerPrice=kind==='market'?mark:priceMode==='offset'?
+    mark+(side==='Long'?1:-1)*Number(priceInput)*tick:Number(priceInput);
+  const entry=kind==='stop-limit'?Number(limitPriceInput):triggerPrice;
   const base=withOrderReservations(portfolio);
   const leverage=accountLeverage(portfolio.settings,asset);
-  const tick=10**(-Math.min(Math.max(asset.digits||2,0),10));
   const fraction=Number(sizeInput)||0;
+  // Cash-risk sizing requires a known stop distance independent of quantity.
+  // A fixed cash/percent-of-balance stop has circular sizing semantics, so it
+  // cannot be selected as a distance input for risk-based quantity.
+  const fixedSizingStop=slEnabled && ['price','ticks','percent'].includes(slMode)?
+    exitPriceFromValue(entry,1,side,'sl',slMode,Number(slValue),tick,base.account.balance):undefined;
+  const trailingSizingStop=trailingEnabled&&Number(trailingPercent)>0&&Number(trailingPercent)<100?
+    entry*(side==='Long'?1-Number(trailingPercent)/100:1+Number(trailingPercent)/100):undefined;
+  const sizingStop=fixedSizingStop===undefined?trailingSizingStop:trailingSizingStop===undefined?fixedSizingStop:
+    side==='Long'?Math.max(fixedSizingStop,trailingSizingStop):Math.min(fixedSizingStop,trailingSizingStop);
   const qty=useMemo(()=>{
     if(!Number.isFinite(entry)||entry<=0)return 0;
     if(sizeMode==='balance')return estimatePaperQty(base,asset,fraction,entry);
     if(sizeMode==='units')return Number(sizeInput)||0;
-    return (Number(sizeInput)||0)/entry;
-  },[base.account.availableFunds,portfolio.settings,asset.symbol,mark,entry,fraction,sizeMode]);
+    if(sizeMode==='notional')return (Number(sizeInput)||0)/entry;
+    const budget=sizeMode==='riskBalance'?base.account.balance*fraction/100:fraction;
+    return sizingStop?paperRiskSizedQty(entry,sizingStop,budget):0;
+  },[base.account.availableFunds,base.account.balance,portfolio.settings,asset.symbol,mark,entry,fraction,sizeMode,sizingStop]);
   const exposure=qty*entry;
   const margin=exposure/leverage;
   const fee=paperCommission(portfolio.settings,asset,qty,entry);
@@ -125,29 +149,49 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const risk=protectiveStop&&qty?Math.abs(entry-protectiveStop)*qty:0;
   const rr=risk>0?reward/risk:0;
   const cash=portfolio.settings.currency;
-  const sizeLabels={balance:'% Balance',units:'Units',notional:'Notional '+cash};
-  const chooseSizeMode=(mode:'balance'|'units'|'notional')=>{
+  const sizeLabels={balance:'% Available',units:'Units',notional:'Notional '+cash,
+    riskMoney:'Risk '+cash,riskBalance:'Risk % Balance'};
+  const chooseSizeMode=(mode:typeof sizeMode)=>{
     if(mode==='balance')setSizeInput(String(pct(base.account.availableFunds?margin/base.account.availableFunds*100:0)));
     else if(mode==='units')setSizeInput(String(Number(qty.toPrecision(10))||0));
-    else setSizeInput(String(Number(exposure.toPrecision(10))||0));
+    else if(mode==='notional')setSizeInput(String(Number(exposure.toPrecision(10))||0));
+    else {
+      // Switching units preserves the monetary risk when a stop already exists.
+      // If none exists, offer a useful 1% sizing target and protective stop.
+      const riskForCurrent=qty&&sizingStop?qty*Math.abs(entry-sizingStop):0;
+      if(!sizingStop){setSlEnabled(true);setSlMode('percent');setSlValue('1');}
+      setSizeInput(String(Number((mode==='riskMoney'?
+        riskForCurrent||base.account.balance*.01:
+        base.account.balance?riskForCurrent/base.account.balance*100||1:1).toPrecision(9))));
+    }
     setSizeMode(mode);setSizeMenu(false);
   };
   const canSubmit=live&&qty>0&&Number.isFinite(qty)&&entry>0&&
-    (kind==='market'||Number(priceInput)>0)&&margin+fee<=base.account.availableFunds+1e-7&&
-    (!tpEnabled||!!tp)&&(!slEnabled||!!sl)&&validTrailing&&validLevels&&asset.currency===cash;
-  const submit=()=>{
+    (kind==='market'||(Number.isFinite(triggerPrice)&&triggerPrice>0))&&
+    (kind!=='stop-limit'||(Number(limitPriceInput)>0&&Number.isFinite(Number(limitPriceInput))))&&
+    margin+fee<=base.account.availableFunds+1e-7&&
+    (!tpEnabled||(!!tp&&(side==='Long'?tp>entry:tp<entry)))&&
+    (!slEnabled||(!!sl&&(side==='Long'?sl<entry:sl>entry)))&&
+    validTrailing&&validLevels&&asset.currency===cash;
+  const execute=()=>{
     setErrorLocal('');
-    const reason=onSubmit({side,kind,qty,price:kind==='market'?undefined:entry,tp,sl,timeInForce:tif,
+    const reason=onSubmit({side,kind,qty,price:kind==='market'?undefined:triggerPrice,
+      limitPrice:kind==='stop-limit'?entry:undefined,tp,sl,timeInForce:tif,
       trailingStopPercent:trailingEnabled?trailingNumber:undefined,
       takeProfitLevels:levels});
-    if(reason)setErrorLocal(reason);
-    else onClose();
+    if(reason){setErrorLocal(reason);setReviewOpen(false);}
+    else {setReviewOpen(false);onClose();}
+  };
+  const submit=()=>{
+    if(!canSubmit)return;
+    if(!oneClick){setReviewOpen(true);return;}
+    execute();
   };
   if(!open)return null;
   return <aside role="dialog" aria-label="Paper Trading order entry" aria-modal="false"
     className="fixed right-0 top-8 bottom-0 z-[135] w-full sm:w-[310px] bg-[#151515] border-l border-[#35363a] text-[#e9ecf2] shadow-[-14px_0_50px_#000a] flex flex-col font-sans animate-in slide-in-from-right-4 duration-200">
     <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-[#27282b]">
-      <div className="bg-[#f3f5fa] text-[#151921] rounded w-6 h-6 grid place-items-center font-bold text-xs">TV</div>
+      <div className="bg-[#f3f5fa] text-[#151921] rounded w-6 h-6 grid place-items-center font-bold text-xs">C</div>
       <div className="flex-1 min-w-0"><div className="truncate font-semibold text-xs">{asset.symbol}</div>
         <div className="truncate text-[10px] text-[#9aa3b5]">{venue} · {portfolio.account.name}</div></div>
       <button type="button" title="Account settings" onClick={onOpenAccount}><Settings2 size={16}/></button>
@@ -169,27 +213,40 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
         </>:<p className="py-5 leading-relaxed text-[#9da5b5]">This feed does not supply verified Level 2 order-book depth. No simulated DOM is shown. Select Order to place a paper trade from a verified last price.</p>}
       </div>:<>
         <div className="grid grid-cols-2 gap-1 mt-3 rounded-lg bg-[#27272a] p-0.5">
-          {(['Short','Long'] as const).map(s=><button key={s} onClick={()=>setSide(s)}
+          {(['Short','Long'] as const).map(s=><button key={s} onClick={()=>{setSide(s);setReviewOpen(false);}}
             className={`rounded-md py-1.5 px-2 flex flex-col ${side===s?s==='Long'?'bg-[#1744a3]':'bg-[#702a30]':'hover:bg-[#343539]'}`}>
             <span className="text-[10px]">{s==='Long'?'Buy':'Sell'}</span>
             <span className="text-sm font-mono">{live?pct(mark):'—'}</span>
           </button>)}
         </div>
         <p className="text-right text-[10px] text-[#959aa5] mt-1">Simulated entry at verified last trade, not guaranteed bid/ask</p>
-        <div className="grid grid-cols-3 mt-3 border-b-2 border-[#55565a]">
-          {(['market','limit','stop'] as const).map(k=><button key={k} onClick={()=>{setKind(k);setPriceInput('');setErrorLocal('');}}
+        <div className="grid grid-cols-4 mt-3 border-b-2 border-[#55565a]">
+          {(['market','limit','stop','stop-limit'] as const).map(k=><button key={k} onClick={()=>{setKind(k);setPriceInput('');setLimitPriceInput('');setErrorLocal('');setReviewOpen(false);}}
             className={`text-xs py-2 capitalize border-b-2 -mb-[2px] ${k===kind?'border-[#f1f1f2] text-white':'border-transparent text-[#a3a4ac]'}`}>{k}</button>)}
         </div>
-        {kind!=='market'&&<label className="block mt-3 text-[11px] text-[#b5bbc5]">Entry trigger price
-          <input className={`mt-1 ${controls}`} type="number" min="0" step="any" aria-label="Entry price" value={priceInput}
-            onChange={e=>setPriceInput(e.target.value)} placeholder={'Last '+(live?pct(mark):'unavailable')}/>
-        </label>}
+        {kind!=='market'&&<label className="block mt-3 text-[11px] text-[#b5bbc5]">{kind==='limit'?'Limit price':kind==='stop'?'Stop trigger price':'Stop trigger price'}
+          <div className="flex gap-1 mt-1">
+            <input className={controls} type="number" step="any" aria-label="Entry price" value={priceInput}
+              onChange={e=>setPriceInput(e.target.value)} placeholder={priceMode==='price'?'Price':'Ticks from last'}/>
+            <select aria-label="Entry price input mode" className="bg-[#292a2e] border border-[#464646] text-[10px] rounded p-1"
+              value={priceMode} onChange={e=>{setPriceMode(e.target.value as 'price'|'offset');setPriceInput('');}}>
+              <option value="price">Price</option><option value="offset">Ticks</option>
+            </select>
+          </div>
+          {priceMode==='offset'&&<span className="text-[10px] text-[#98a4b5]">Relative to observed last price · calculated trigger {pct(triggerPrice)}</span>}
+        </label>
+        }
+        {kind==='stop-limit'&&<label className="block mt-2 text-[11px] text-[#b5bbc5]">Limit execution price
+          <input className={`mt-1 ${controls}`} type="number" min="0" step="any" aria-label="Stop-limit limit price"
+            value={limitPriceInput} onChange={e=>setLimitPriceInput(e.target.value)}/>
+          <span className="text-[10px] text-[#98a4b5]">The stop activates a limit order. It fills only at this limit or better.</span>
+        </label> }
         <div className="mt-4">
           <div className="relative mb-1">
             <button className="flex items-center gap-1 text-[11px] text-[#b8bfca]" onClick={()=>setSizeMenu(v=>!v)}>
               {sizeLabels[sizeMode]}<ChevronDown size={12}/></button>
             {sizeMenu&&<div className="absolute top-full left-0 z-[90] bg-[#252528] border border-[#44464b] rounded shadow-xl min-w-[144px]">
-              {(['balance','units','notional'] as const).map(m=><button type="button" onClick={()=>chooseSizeMode(m)} key={m}
+              {(['units','notional','balance','riskMoney','riskBalance'] as const).map(m=><button type="button" onClick={()=>chooseSizeMode(m)} key={m}
                 className="block text-left w-full px-3 py-2 hover:bg-[#3c3e44] text-xs">{sizeLabels[m]}</button>)}</div>}
           </div>
           <div className="flex items-center gap-1 border rounded-md border-[#44464b] bg-[#191a1d] h-9 px-2">
@@ -198,13 +255,14 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
             <ArrowLeftRight size={13} className="text-[#9da4b1]"/>
             <span className="text-[11px] text-[#bac2d0]">{pct(exposure)} {cash}</span>
           </div>
-          {sizeMode==='balance'&&<>
+          {(sizeMode==='balance'||sizeMode==='riskBalance')&&<>
             <input type="range" aria-label="Percentage of balance" className="w-full mt-2 accent-[#dee2eb]" min="0" max="100" step="1"
               value={Math.min(100,Math.max(0,Number(sizeInput)||0))} onChange={e=>setSizeInput(e.target.value)}/>
             <div className="flex justify-between text-[10px] text-[#7d8491]">
-              {[0,25,50,75,99,100].map(x=><button key={x} onClick={()=>setSizeInput(String(x))} className="hover:text-white">{x}%</button>)}
+              {(sizeMode==='balance'?[0,25,50,75,99,100]:[0,0.5,1,2,5,10]).map(x=><button key={x} onClick={()=>setSizeInput(String(x))} className="hover:text-white">{x}%</button>)}
             </div>
           </>}
+          {(sizeMode==='riskMoney'||sizeMode==='riskBalance')&&!sizingStop&&<p role="alert" className="text-[10px] text-[#ff9a9a] mt-1">Select a fixed price/tick/% stop loss or enable a trailing stop to calculate risk-based units.</p>}
           <p className="text-[10px] text-[#a1a9b8] mt-2">
             Available {pct(base.account.availableFunds)} {cash} · {leverage}× leverage · Margin {pct(margin)} {cash}
           </p>
@@ -286,6 +344,18 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
               <option value="Day">Day (24 hours)</option><option value="Week">Week (7 days)</option><option value="GTC">Good till cancelled</option>
             </select></label>}
         </div>}
+        <div className="mt-4 rounded-md border border-[#383b41] bg-[#1e1e21] p-3 text-[11px] space-y-1.5" aria-label="Order info">
+          <strong className="block text-[#e0e3ed]">Order info</strong>
+          <div className="flex justify-between"><span>Leverage</span><span>{leverage}×</span></div>
+          <div className="flex justify-between"><span>Tick size</span><span>{pct(tick)} {asset.currency}</span></div>
+          <div className="flex justify-between"><span>Trade value</span><span>{pct(exposure)} {cash}</span></div>
+          <div className="flex justify-between"><span>Initial margin</span><span>{pct(margin)} {cash}</span></div>
+          <div className="flex justify-between"><span>Available funds</span><span>{pct(base.account.availableFunds)} {cash}</span></div>
+          <div className="flex justify-between"><span>Est. commission</span><span>{pct(fee)} {cash}</span></div>
+          {(slEnabled||trailingEnabled)&&<div className="flex justify-between"><span>Risk before slippage</span><span>{pct(risk)} {cash}</span></div>}
+          {tpEnabled&&<div className="flex justify-between"><span>Potential reward</span><span>{pct(reward)} {cash}</span></div>}
+          {tpEnabled&&risk>0&&<div className="flex justify-between"><span>Reward / Risk</span><span>{pct(rr)}×</span></div>}
+        </div>
         <div className="mt-3 text-[10px] text-[#949ba9]">
           Est. opening commission: {pct(fee)} {cash}. Market entries use last observed price; live price may change before submission.
         </div>
@@ -293,13 +363,47 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
         {asset.currency!==cash&&<p className="text-[11px] text-[#efb578] mt-2">
           This market is quoted in {asset.currency}; account uses {cash}. Switch to a matching paper account.</p>}
         {!live&&<p className="text-[11px] text-[#e1b06f] mt-2">A current exchange quote is required before submitting this order.</p>}
+        <label className="mt-3 flex items-center justify-between text-[11px] text-[#b9bec8] cursor-pointer">
+          <span>One-click paper execution</span>
+          <input type="checkbox" aria-label="One-click paper trading" checked={oneClick}
+            onChange={e=>setOneClick(e.target.checked)} className="accent-[#3977ff]"/>
+        </label>
+        <p className="text-[10px] text-[#8c94a2] mt-1">{oneClick?'Orders submit immediately.':'Review and confirm before simulated execution.'}</p>
         <button type="button" onClick={submit} disabled={!canSubmit}
           className={`w-full min-h-14 rounded-lg text-sm font-bold mt-5 px-3 ${side==='Long'?'bg-[#2862fb]':'bg-[#bb394e]'} text-white disabled:bg-[#333437] disabled:text-[#8d939c] disabled:cursor-not-allowed`}>
           {live&&qty>0&&canSubmit?<><div>{side==='Long'?'Buy':'Sell'}</div>
-            <div className="font-normal text-[10px] mt-0.5">{pct(qty)} {asset.symbol} · {kind.toUpperCase()}{kind!=='market'?' @ '+pct(entry):''}</div>
+            <div className="font-normal text-[10px] mt-0.5">{pct(qty)} {asset.symbol} · {kind.toUpperCase()}{kind!=='market'?' @ '+pct(triggerPrice):''}</div>
           </>: 'Start creating order'}
         </button>
       </>}
     </div>
+    {reviewOpen&&<div className="absolute inset-0 z-50 flex flex-col bg-[#191b20] border-l border-[#4a4e58] text-[#edf0f7]">
+      <header className="flex items-center justify-between px-4 h-14 border-b border-[#383c44]">
+        <strong className="text-sm">Review simulated {side==='Long'?'Buy':'Sell'} order</strong>
+        <button type="button" title="Cancel order review" onClick={()=>setReviewOpen(false)}><X size={18}/></button>
+      </header>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+        <p className="text-[#9da6b4]">No real funds are involved. The price used at execution can change with the market.</p>
+        <div className="space-y-3 rounded-lg bg-[#24262c] border border-[#424753] p-4">
+          <div className="flex justify-between"><span>Market</span><strong>{venue}:{asset.symbol}</strong></div>
+          <div className="flex justify-between"><span>Action</span><strong>{side==='Long'?'Buy':'Sell'} {kind.toUpperCase()}</strong></div>
+          <div className="flex justify-between"><span>Quantity</span><strong>{pct(qty)} units</strong></div>
+          {kind!=='market'&&<div className="flex justify-between"><span>Trigger / price</span><strong>{pct(triggerPrice)}</strong></div>}
+          {kind==='stop-limit'&&<div className="flex justify-between"><span>Limit</span><strong>{pct(entry)}</strong></div>}
+          <div className="flex justify-between"><span>Trade value</span><strong>{pct(exposure)} {cash}</strong></div>
+          <div className="flex justify-between"><span>Margin / leverage</span><strong>{pct(margin)} {cash} / {leverage}×</strong></div>
+          <div className="flex justify-between"><span>Commission</span><strong>{pct(fee)} {cash}</strong></div>
+          {tp!==undefined&&<div className="flex justify-between"><span>Take profit</span><strong>{pct(tp)}</strong></div>}
+          {protectiveStop!==undefined&&<div className="flex justify-between"><span>Stop loss</span><strong>{pct(protectiveStop)}</strong></div>}
+          {kind!=='market'&&<div className="flex justify-between"><span>Time in force</span><strong>{tif}</strong></div>}
+        </div>
+        {!canSubmit&&<p role="alert" className="text-[#ffb1b6]">The quote, size, margin or exits are no longer valid. Cancel and review the ticket.</p>}
+      </div>
+      <div className="p-4 border-t border-[#383c44] flex flex-col gap-2">
+        <button type="button" disabled={!canSubmit} onClick={execute}
+          className="bg-[#2962ff] disabled:bg-[#444a57] text-white text-sm font-semibold rounded-lg py-3">Confirm {side==='Long'?'Buy':'Sell'} · Paper Trading</button>
+        <button type="button" onClick={()=>setReviewOpen(false)} className="border border-[#575d68] rounded-lg py-2 text-xs">Back to order</button>
+      </div>
+    </div>}
   </aside>;
 };
