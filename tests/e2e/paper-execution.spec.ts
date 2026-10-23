@@ -33,7 +33,7 @@ test('paper position close requires confirmation and permits partial execution',
   });
   await page.goto('./');
   await page.getByRole('button',{name:/Paper Trading/}).first().click();
-  await expect(page.getByText('Position QA',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Select Paper Trading account'})).toContainText('Position QA');
   await page.getByTitle('Close at latest verified price').click();
   const dialog=page.getByRole('dialog',{name:'Review paper position close'});
   await expect(dialog).toBeVisible();
