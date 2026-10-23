@@ -134,3 +134,19 @@ approx(paperRiskSizedQty(100,105,250),50);
 assert.equal(paperRiskSizedQty(100,100,250),0);
 assert.equal(paperRiskSizedQty(100,95,-10),0);
 console.log('TradingView-style stop-limit trigger/resting execution and cash-risk sizing passed.');
+
+const auditPending=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:95},now);
+assert.equal(auditPending.orderEvents?.[0].action,'submitted');
+const auditCanceled=cancelPaperOrder(auditPending,auditPending.pendingOrders![0].id);
+assert.equal(auditCanceled.orderEvents?.[0].action,'canceled');
+assert.equal(auditCanceled.pendingOrders?.length,0);
+const auditFilled=evaluatePaperOrders(auditPending,fresh(94,now+1000),now+1000);
+assert.equal(auditFilled.orderEvents?.[0].action,'filled');
+assert.equal(auditFilled.orderEvents?.some(e=>e.action==='canceled'),false);
+const auditExpired=evaluatePaperOrders(
+  submitPaperOrder(empty,asset,{side:'Short',kind:'limit',qty:1,price:110,timeInForce:'Day'},now),
+  fresh(100,now+86_400_001),now+86_400_001);
+assert.equal(auditExpired.orderEvents?.[0].action,'expired');
+assert.equal(auditExpired.pendingOrders?.length,0);
+assert.equal(activated.orderEvents?.[0].action,'activated');
+console.log('Order lifecycle audit passed: submit, stop activation, fills, cancellation and expiry.');
