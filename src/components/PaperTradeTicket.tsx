@@ -103,7 +103,7 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const mark=Number(asset.price);
   const tick=10**(-Math.min(Math.max(asset.digits||2,0),10));
   const triggerPrice=kind==='market'?mark:priceMode==='offset'?
-    mark+(side==='Long'?1:-1)*Number(priceInput)*tick:Number(priceInput);
+    mark+Number(priceInput)*tick:Number(priceInput);
   const entry=kind==='stop-limit'?Number(limitPriceInput):triggerPrice;
   const base=withOrderReservations(portfolio);
   const leverage=accountLeverage(portfolio.settings,asset);
@@ -166,8 +166,10 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
     }
     setSizeMode(mode);setSizeMenu(false);
   };
-  const canSubmit=live&&qty>0&&Number.isFinite(qty)&&entry>0&&
-    (kind==='market'||(Number.isFinite(triggerPrice)&&triggerPrice>0))&&
+  const validStopTrigger=(kind!=='stop'&&kind!=='stop-limit') ||
+    (side==='Long'?triggerPrice>mark:triggerPrice<mark);
+  const canSubmit=live&&qty>0&&Number.isFinite(qty)&&entry>0&&validStopTrigger&&
+    (kind==='market'||(priceInput.trim()!==''&&Number.isFinite(triggerPrice)&&triggerPrice>0))&&
     (kind!=='stop-limit'||(Number(limitPriceInput)>0&&Number.isFinite(Number(limitPriceInput))))&&
     margin+fee<=base.account.availableFunds+1e-7&&
     (!tpEnabled||(!!tp&&(side==='Long'?tp>entry:tp<entry)))&&
@@ -233,7 +235,8 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
               <option value="price">Price</option><option value="offset">Ticks</option>
             </select>
           </div>
-          {priceMode==='offset'&&<span className="text-[10px] text-[#98a4b5]">Relative to observed last price · calculated trigger {pct(triggerPrice)}</span>}
+          {priceMode==='offset'&&<span className="text-[10px] text-[#98a4b5]">Signed tick offset from observed last · calculated trigger {pct(triggerPrice)}</span>}
+          {!validStopTrigger&&priceInput.trim()!==''&&<span role="alert" className="text-[10px] text-[#ff9ca5] block">Buy stops must be above last price; sell stops must be below.</span>}
         </label>
         }
         {kind==='stop-limit'&&<label className="block mt-2 text-[11px] text-[#b5bbc5]">Limit execution price
