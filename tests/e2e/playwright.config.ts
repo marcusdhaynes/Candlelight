@@ -10,6 +10,7 @@ export default defineConfig({
   reporter:process.env.CI?'github':'list',
   use:{
     ...devices['Desktop Chrome'],
+    channel:'chrome',
     baseURL:'http://127.0.0.1:4173/Candlelight/',
     viewport:{width:1600,height:900},
     screenshot:'only-on-failure',
