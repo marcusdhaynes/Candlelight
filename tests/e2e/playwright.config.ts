@@ -18,6 +18,7 @@ export default defineConfig({
   },
   webServer:{
     command:'pnpm run preview -- --host 127.0.0.1 --port 4173',
+    env:{GITHUB_PAGES:'true'},
     cwd:'../..',
     url:'http://127.0.0.1:4173/Candlelight/',
     reuseExistingServer:!process.env.CI,
