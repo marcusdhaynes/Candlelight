@@ -149,8 +149,16 @@ export const MainChart = React.memo(
       },
       selectRange: (days: number) => {
         if (!chartApiRef.current || candles.length === 0) return;
+        if (days === 0) {
+          chartApiRef.current.timeScale().fitContent();
+          return;
+        }
         const lastTime = candles[candles.length - 1].time;
-        const fromTime = lastTime - days * 86400;
+        // -1 means actual Year To Date, anchored to the latest plotted bar.
+        // Fixed "250-day YTD" silently drifts across calendar boundaries.
+        const fromTime = days === -1
+          ? Math.floor(Date.UTC(new Date(lastTime * 1000).getUTCFullYear(),0,1) / 1000)
+          : lastTime - days * 86400;
         chartApiRef.current.timeScale().setVisibleRange({
           from: fromTime as any,
           to: lastTime as any,
