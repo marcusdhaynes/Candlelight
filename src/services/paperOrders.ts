@@ -117,7 +117,7 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
   const ttl=request.timeInForce==='Day'?86400000:request.timeInForce==='Week'?604800000:undefined;
   const order:PaperEntryOrder={
     id:'pending-'+now+'-'+Math.random().toString(36).slice(2,9),
-    symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind,
+    symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind as PaperEntryOrder['kind'],
     qty:request.qty,price,limitPrice:request.limitPrice,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
     leverage,tp:request.tp,sl:request.sl,
     trailingStopPercent:request.trailingStopPercent,
