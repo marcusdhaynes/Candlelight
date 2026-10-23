@@ -8,6 +8,7 @@ import {
   OHLCV,
   OrderBookItem,
   PriceAlert,
+  AlertLogEntry,
   Timeframe,
   TradeItem,
   Watchlist,
@@ -19,8 +20,7 @@ import {
   INITIAL_ASSETS,
   INITIAL_WATCHLISTS,
   SAMPLE_NEWS,
-  SAMPLE_DETAILED_ALERTS,
-   INITIAL_DRAWINGS,
+  INITIAL_DRAWINGS,
 } from './data/assets';
 import {
   fetchHistoricalData,
@@ -205,13 +205,30 @@ export default function App() {
   // State: Detailed Alerts & Price Alerts (Matching Screenshot with 4 alerts)
   const [detailedAlerts, setDetailedAlerts] = useState<DetailedAlert[]>(() => {
     const saved = localStorage.getItem('tv_detailed_alerts');
-    return saved ? JSON.parse(saved) : SAMPLE_DETAILED_ALERTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
     const saved = localStorage.getItem('tv_alerts');
     return saved ? JSON.parse(saved) : [];
   });
+  const alertsRef = useRef<PriceAlert[]>(alerts);
+  const previousAlertPricesRef = useRef<Record<string, number>>({});
+  const [alertLog, setAlertLog] = useState<AlertLogEntry[]>(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem('candlelight_alert_log_v1') || '[]');
+      return Array.isArray(value) ? value.slice(0, 100) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    alertsRef.current = alerts;
+    try { localStorage.setItem('tv_alerts', JSON.stringify(alerts)); }
+    catch (error) { console.warn('Price alert storage unavailable', error); }
+  }, [alerts]);
+  useEffect(() => {
+    try { localStorage.setItem('candlelight_alert_log_v1', JSON.stringify(alertLog)); }
+    catch (error) { console.warn('Alert log storage unavailable', error); }
+  }, [alertLog]);
   const [activeNotification, setActiveNotification] = useState<{ id: string; message: string; type: 'alert' | 'info' } | null>(null);
 
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
@@ -749,6 +766,9 @@ export default function App() {
     // Order depth and tape require real subscribed feeds; do not seed fabricated data.
     setOrderBook({ bids: [], asks: [] });
     setRecentTrades([]);
+    // A new stream must establish its own first observed price before a
+    // crossing can be computed; a stale prior subscription must not trigger.
+    delete previousAlertPricesRef.current[assetIdentity(activeAsset)];
 
     // 4. Subscribe to Real Market Data (Binance WebSocket for crypto, high-precision feed for others)
     const unsubscribe = subscribeRealMarketData(activeAsset, activeTimeframe, {
@@ -756,6 +776,31 @@ export default function App() {
         if (isCancelled) return;
 
         const now = Date.now();
+        // Price alerts are local, one-shot crossing detectors based exclusively
+        // on observed live ticks. Never trigger on demonstration/delayed quotes.
+        const marketKey = assetIdentity(activeAsset);
+        const previous = previousAlertPricesRef.current[marketKey];
+        previousAlertPricesRef.current[marketKey] = newPrice;
+        if (!activeAsset.pairAddress && Number.isFinite(previous) &&
+            Number.isFinite(newPrice) && newPrice > 0) {
+          const hits = alertsRef.current.filter(a => a.symbol === activeAsset.symbol &&
+            !a.triggered && !a.paused && Number.isFinite(a.targetPrice) && a.targetPrice > 0 &&
+            (a.condition === 'cross_above'
+              ? previous < a.targetPrice && newPrice >= a.targetPrice
+              : previous > a.targetPrice && newPrice <= a.targetPrice));
+          if (hits.length) {
+            const hitIds = new Set(hits.map(a => a.id));
+            const updated = alertsRef.current.map(a => hitIds.has(a.id) ? {...a, triggered:true} : a);
+            alertsRef.current = updated;
+            setAlerts(updated);
+            const entries:AlertLogEntry[] = hits.map(a => ({
+              id:a.id + '-' + now, symbol:a.symbol, price:newPrice, at:now,
+              message:`${a.symbol} crossed ${a.condition === 'cross_above' ? 'above' : 'below'} ${a.targetPrice} at ${newPrice}`,
+            }));
+            setAlertLog(prev => [...entries, ...prev].slice(0,100));
+            setActiveNotification({id:String(now),message:entries[0].message,type:'alert'});
+          }
+        }
         setActiveAsset((prev) => {
           const priceDelta = newPrice - prev.price;
           if (priceDelta !== 0 && now - lastFlashTimeRef.current > 350) {
@@ -1070,6 +1115,9 @@ export default function App() {
 
   // Toggle Alert Status
   const handleToggleAlertStatus = (id: string) => {
+    setAlerts(prev => prev.map(a => a.id !== id ? a : a.triggered
+      ? {...a, triggered:false, paused:false}
+      : {...a, paused:!a.paused}));
     setDetailedAlerts((prev) =>
       prev.map((a) =>
         a.id === id ? { ...a, status: a.status === 'Active' ? 'Paused' : 'Active' } : a
@@ -1079,6 +1127,7 @@ export default function App() {
 
   // Delete Alert
   const handleDeleteDetailedAlert = (id: string) => {
+    setAlerts(prev => prev.filter(a => a.id !== id));
     setDetailedAlerts((prev) => prev.filter((a) => a.id !== id));
   };
 
@@ -1316,7 +1365,15 @@ export default function App() {
           asks={orderBook.asks}
           bids={orderBook.bids}
           trades={recentTrades}
-          detailedAlerts={detailedAlerts}
+          detailedAlerts={[...alerts.map(a => ({
+            id:a.id, symbol:a.symbol,
+            title:`${a.symbol} crosses ${a.condition === 'cross_above' ? 'above' : 'below'} ${a.targetPrice}`,
+            message:a.notes || `Trigger at ${a.targetPrice}`, timeframe:'Live',
+            status:(a.paused?'Paused':a.triggered?'Triggered':'Active') as DetailedAlert['status'],
+            dateStr:new Date(a.createdAt).toLocaleString(), type:'price' as const,
+          })),...detailedAlerts]}
+          alertLog={alertLog}
+          notification={activeNotification}
           onOpenCreateAlertModal={() => setIsAlertsOpen(true)}
           onToggleAlertStatus={handleToggleAlertStatus}
           onDeleteDetailedAlert={handleDeleteDetailedAlert}
