@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DetailedAlert } from '../types';
+import { DetailedAlert, AlertLogEntry } from '../types';
 import { DependencyContext } from '../types/conditionalOrders';
 import {
   Plus,
@@ -18,6 +18,7 @@ import {
 
 interface AlertsPanelProps {
   alerts: DetailedAlert[];
+  alertLog: AlertLogEntry[];
   onOpenCreateModal: () => void;
   onToggleStatus: (id: string) => void;
   onDeleteAlert: (id: string) => void;
@@ -26,6 +27,7 @@ interface AlertsPanelProps {
 
 export const AlertsPanel: React.FC<AlertsPanelProps> = ({
   alerts,
+  alertLog,
   onOpenCreateModal,
   onToggleStatus,
   onDeleteAlert,
@@ -37,6 +39,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [sortAscending, setSortAscending] = useState(false);
 
   React.useEffect(() => {
     localStorage.setItem('tv_alerts_subtab', subTab);
@@ -47,7 +50,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
       a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ).sort((a,b)=>sortAscending?a.title.localeCompare(b.title):b.title.localeCompare(a.title));
 
   return (
     <div id="tradingview-alerts-panel" className="flex flex-col h-full bg-[#131722] text-[#d1d4dc] select-none text-[11px]">
@@ -75,7 +78,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
           >
             <span>Log</span>
             <span className="w-3.5 h-3.5 rounded-full bg-[#f23645] text-white text-[9px] font-bold flex items-center justify-center">
-              1
+              {alertLog.length}
             </span>
           </button>
         </div>
@@ -98,14 +101,18 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
             <Search className="w-3 h-3" />
           </button>
           <button
+            onClick={() => setSortAscending(v => !v)}
             className="p-0.5 hover:text-white hover:bg-[#1e222d] rounded transition"
-            title="Sort Order"
+            title={sortAscending ? 'Sort alerts Z to A' : 'Sort alerts A to Z'}
           >
             <ArrowUpDown className="w-3 h-3" />
           </button>
           <button
-            className="p-0.5 hover:text-white hover:bg-[#1e222d] rounded transition"
-            title="More Options"
+            type="button"
+            disabled
+            aria-label="More alert options not yet available"
+            className="p-0.5 text-[#555960] rounded cursor-not-allowed"
+            title="More alert options are not yet available"
           >
             <MoreHorizontal className="w-3 h-3" />
           </button>
@@ -245,15 +252,17 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
         )}
 
         {subTab === 'log' && (
-          <div className="p-2">
-            <div className="p-2 rounded bg-[#1e222d] border border-[#2a2e39] text-[10.5px]">
-              <div className="flex items-center justify-between text-[#787b86] text-[9.5px] mb-1">
-                <span>Trigger Log</span>
-                <span>Today 01:04 AM</span>
+          <div className="p-2 space-y-2">
+            {alertLog.map(entry => (
+              <div key={entry.id} className="p-2 rounded bg-[#1e222d] border border-[#2a2e39] text-[10.5px]">
+                <div className="flex justify-between text-[#787b86] text-[9.5px] mb-1">
+                  <span>{entry.symbol} · Observed live price</span>
+                  <span>{new Date(entry.at).toLocaleString()}</span>
+                </div>
+                <div className="text-white font-medium">{entry.message}</div>
               </div>
-              <div className="text-white font-medium">ARBUSD Secondary Trendline Broken</div>
-              <div className="text-[10px] text-[#089981] mt-0.5">Price crossed 0.1470 (+1.45%)</div>
-            </div>
+            ))}
+            {alertLog.length===0 && <p className="p-3 text-[#787b86] text-[10.5px]">No price alert has triggered in this browser yet. Alerts cannot run while the browser page is closed.</p>}
           </div>
         )}
       </div>
