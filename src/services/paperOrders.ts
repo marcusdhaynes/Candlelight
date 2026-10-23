@@ -176,9 +176,10 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
   }
   return withOrderReservations(markPaperPositions(next,a,at));
 }
-export function estimatePaperQty(p:PaperPortfolio,a:Asset,percent:number,price:number):number{
+export function estimatePaperQty(p:PaperPortfolio,a:Asset,percent:number,price:number,basis:'available'|'balance'='available'):number{
   if(!finitePositive(price))return 0;
-  const free=withOrderReservations(p).account.availableFunds;
+  const state=withOrderReservations(p);
+  const free=basis==='balance'?state.account.balance:state.account.availableFunds;
   const fraction=Math.max(0,Math.min(100,percent))/100;
   const leverage=accountLeverage(p.settings,a);
   let qty=free*fraction*leverage/price;
