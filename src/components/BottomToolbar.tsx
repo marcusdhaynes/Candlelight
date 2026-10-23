@@ -32,7 +32,9 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
       const ampm = hours >= 12 ? 'PM' : 'AM';
       const m = String(now.getMinutes()).padStart(2, '0');
       const s = String(now.getSeconds()).padStart(2, '0');
-      setCurrentTimeStr(`${String(h).padStart(2, '0')}:${m}:${s} ${ampm} UTC-4`);
+      const offset = -now.getTimezoneOffset();
+      const zone = `UTC${offset >= 0 ? '+' : '-'}${String(Math.floor(Math.abs(offset)/60)).padStart(2,'0')}:${String(Math.abs(offset)%60).padStart(2,'0')}`;
+      setCurrentTimeStr(`${String(h).padStart(2, '0')}:${m}:${s} ${ampm} ${zone}`);
     };
 
     updateTime();
@@ -81,7 +83,7 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
       <div className="flex items-center gap-1.5 text-[#787b86] font-mono text-[10px]">
         {/* Live Ticking Time (01:08:13 AM UTC-4) */}
         <span className="text-[#787b86] text-[9.5px] select-all cursor-pointer hover:text-[#d1d4dc]">
-          {currentTimeStr || '01:08:13 AM UTC-4'}
+          {currentTimeStr || '—'}
         </span>
 
         {/* % Percentage scale toggle */}
