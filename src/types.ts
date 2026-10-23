@@ -166,7 +166,16 @@ export interface PriceAlert {
   condition: 'cross_above' | 'cross_below';
   createdAt: number;
   triggered: boolean;
+  paused?: boolean;
   notes?: string;
+}
+
+export interface AlertLogEntry {
+  id: string;
+  symbol: string;
+  price: number;
+  message: string;
+  at: number;
 }
 
 export interface OrderBookItem {
