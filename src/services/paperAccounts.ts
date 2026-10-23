@@ -1,7 +1,8 @@
 import type {ConditionalOrder} from '../types/conditionalOrders';
+import {withOrderReservations} from './paperOrders';
 import {
   emptyPaperPortfolio,normalizePaperSettings,validatePaperSettings,
-  recalculatePaperPortfolio,type PaperPortfolio,type PaperSettings,
+  type PaperPortfolio,type PaperSettings,
 } from './paperTrading';
 
 export interface PaperAccountRecord {
@@ -30,7 +31,7 @@ export function loadPaperAccounts():PaperAccountsState{
           .map(entry=>{
             const settings=normalizePaperSettings(entry.portfolio.settings);
             validatePaperSettings(settings);
-            return {...entry,portfolio:recalculatePaperPortfolio({...entry.portfolio,settings}),
+            return {...entry,portfolio:withOrderReservations({...entry.portfolio,settings}),
               orders:Array.isArray(entry.orders)?entry.orders:[]};
           });
         if(accounts.length)return {accounts,activeId:accounts.some(a=>a.id===raw.activeId)?
@@ -44,7 +45,7 @@ export function loadPaperAccounts():PaperAccountsState{
       const p=JSON.parse(old) as PaperPortfolio;
       if(p?.account&&Array.isArray(p.positions)&&Array.isArray(p.fills)){
         const defaultRecord=createPaperAccountRecord(p.account.name||'Primary 001');
-        defaultRecord.portfolio=recalculatePaperPortfolio({
+        defaultRecord.portfolio=withOrderReservations({
           ...p,settings:normalizePaperSettings({
             startingBalance:10000,currency:'USD',
             // Old positions had individual leverage; preserve their booked margin,
