@@ -119,7 +119,7 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
     side==='Long'?Math.max(fixedSizingStop,trailingSizingStop):Math.min(fixedSizingStop,trailingSizingStop);
   const qty=useMemo(()=>{
     if(!Number.isFinite(entry)||entry<=0)return 0;
-    if(sizeMode==='balance')return estimatePaperQty(base,asset,fraction,entry);
+    if(sizeMode==='balance')return estimatePaperQty(base,asset,fraction,entry,'balance');
     if(sizeMode==='units')return Number(sizeInput)||0;
     if(sizeMode==='notional')return (Number(sizeInput)||0)/entry;
     const budget=sizeMode==='riskBalance'?base.account.balance*fraction/100:fraction;
@@ -149,10 +149,10 @@ export const PaperTradeTicket:React.FC<Props>=({open,onClose,asset,portfolio,onS
   const risk=protectiveStop&&qty?Math.abs(entry-protectiveStop)*qty:0;
   const rr=risk>0?reward/risk:0;
   const cash=portfolio.settings.currency;
-  const sizeLabels={balance:'% Available',units:'Units',notional:'Notional '+cash,
+  const sizeLabels={balance:'% Balance',units:'Units',notional:'Notional '+cash,
     riskMoney:'Risk '+cash,riskBalance:'Risk % Balance'};
   const chooseSizeMode=(mode:typeof sizeMode)=>{
-    if(mode==='balance')setSizeInput(String(pct(base.account.availableFunds?margin/base.account.availableFunds*100:0)));
+    if(mode==='balance')setSizeInput(String(pct(base.account.balance?margin/base.account.balance*100:0)));
     else if(mode==='units')setSizeInput(String(Number(qty.toPrecision(10))||0));
     else if(mode==='notional')setSizeInput(String(Number(exposure.toPrecision(10))||0));
     else {
