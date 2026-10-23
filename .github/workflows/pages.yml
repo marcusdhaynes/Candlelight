@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: github-pages
+  group: candlelight-verified-pages-v2
   cancel-in-progress: true
 jobs:
   build:
