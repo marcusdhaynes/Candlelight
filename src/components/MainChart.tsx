@@ -157,11 +157,11 @@ export const MainChart = React.memo(
         });
       },
       takeSnapshot: () => {
-        if (!chartContainerRef.current) return;
-        const canvas = chartContainerRef.current.querySelector('canvas');
-        if (!canvas) return;
+        if (!chartApiRef.current) return;
         try {
-          const imgUrl = canvas.toDataURL('image/png');
+          // The chart owns multiple canvases (price, grid, indicators, scales).
+          // Capturing only the first DOM canvas produces incomplete screenshots.
+          const imgUrl = chartApiRef.current.takeScreenshot(true).toDataURL('image/png');
           const a = document.createElement('a');
           a.href = imgUrl;
           a.download = `${asset.symbol}_${timeframe}_chart.png`;
@@ -990,7 +990,7 @@ export const MainChart = React.memo(
 
         {/* Currency Label at Top Right of Price Scale */}
         <div className="absolute top-2 right-2 z-20 pointer-events-none text-[10px] font-mono font-bold text-[#787b86] bg-[#131722] px-1 rounded">
-          USD ▾
+          {asset.currency} ▾
         </div>
 
         {/* Lightweight Charts Canvas Container */}
@@ -1023,7 +1023,7 @@ export const MainChart = React.memo(
                 {openPosition.qty.toLocaleString()}
               </div>
               <div className="px-2 py-0.5 border-r border-[#2962ff]/40 text-[#089981] font-semibold">
-                +{openPosition.unrealizedPnL.toFixed(2)} USD
+                {openPosition.unrealizedPnL >= 0 ? '+' : ''}{openPosition.unrealizedPnL.toFixed(2)} {asset.currency}
               </div>
               <button
                 onClick={() => onClosePosition?.(openPosition.id)}
