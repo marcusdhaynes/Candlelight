@@ -48,9 +48,9 @@ export const BottomToolbar: React.FC<BottomToolbarProps> = ({
     { label: '1M', days: 30 },
     { label: '3M', days: 90 },
     { label: '6M', days: 180 },
-    { label: 'YTD', days: 250 },
+    { label: 'YTD', days: -1 },
     { label: '1Y', days: 365 },
-    { label: 'ALL', days: 1500 },
+    { label: 'ALL', days: 0 },
   ];
 
   return (
