@@ -16,7 +16,10 @@ test('order ticket tabs, order types, trailing exits, and account settings are i
   await ticket.getByRole('button',{name:'stop',exact:true}).click();
   await expect(ticket.getByLabel('Entry price')).toHaveValue('');
   await ticket.getByRole('button',{name:'market',exact:true}).click();
-  await ticket.getByRole('button',{name:/Exits/}).click();
+  const exits=ticket.getByRole('button',{name:/Exits/});
+  await exits.click();
+  await expect(ticket.getByRole('switch',{name:'Enable trailing stop loss'})).toHaveCount(0);
+  await exits.click();
   const trailing=ticket.getByRole('switch',{name:'Enable trailing stop loss'});
   await trailing.click();
   await expect(trailing).toHaveAttribute('aria-checked','true');
