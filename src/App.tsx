@@ -283,7 +283,7 @@ export default function App() {
       // Validate before touching React state so the dialog receives any error.
       const record=paperAccounts.accounts.find(a=>a.id===id);
       if(!record)throw new Error('Account not found.');
-      const updated=configurePaperPortfolio(record.portfolio,settings,name);
+      const updated=withOrderReservations(configurePaperPortfolio(record.portfolio,settings,name));
       setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>a.id===id?{...a,portfolio:updated}:a)}));
     }else{
       const record=createPaperAccountRecord(name,settings);
