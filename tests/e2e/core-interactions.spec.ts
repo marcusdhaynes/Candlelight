@@ -17,7 +17,7 @@ test('order ticket tabs, order types, trailing exits, and account settings are i
   await expect(ticket.getByRole('spinbutton',{name:'Entry price',exact:true})).toHaveValue('');
   await ticket.getByRole('button',{name:'stop-limit',exact:true}).click();
   await expect(ticket.getByLabel('Stop-limit limit price')).toBeVisible();
-  await ticket.getByRole('button',{name:'% Available'}).click();
+  await ticket.getByRole('button',{name:'% Balance'}).click();
   await ticket.getByRole('button',{name:'Risk % Balance'}).click();
   await expect(ticket.getByRole('spinbutton',{name:'Order size'})).toBeVisible();
   await expect(ticket.getByLabel('One-click paper trading')).not.toBeChecked();
