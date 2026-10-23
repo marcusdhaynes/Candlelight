@@ -19,6 +19,11 @@ export interface PaperEntryOrder {
   createdAt:number;expiresAt?:number;
   status:'pending'|'triggered';
 }
+export interface PaperOrderEvent {
+  id:string; orderId:string; symbol:string;exchange:string;
+  side:PaperOrderSide;kind:PaperOrderKind;qty:number;price:number;
+  at:number;action:'submitted'|'activated'|'filled'|'canceled'|'expired';
+}
 export interface PaperPartialTarget {price:number;sharePercent:number}
 export interface PaperOrderRequest {
   side:PaperOrderSide;kind:PaperOrderKind;qty:number;
@@ -27,6 +32,13 @@ export interface PaperOrderRequest {
   takeProfitLevels?:PaperPartialTarget[];
 }
 const finitePositive=(n:number)=>Number.isFinite(n)&&n>0;
+const recordEvent=(p:PaperPortfolio,order:Pick<PaperEntryOrder,'id'|'symbol'|'exchange'|'side'|'kind'|'qty'|'price'>,
+  action:PaperOrderEvent['action'],at=Date.now(),price=order.price):PaperPortfolio=>({
+    ...p,orderEvents:[{
+      id:order.id+'-'+action+'-'+at,orderId:order.id,symbol:order.symbol,exchange:order.exchange,
+      side:order.side,kind:order.kind,qty:order.qty,price,action,at,
+    },...(p.orderEvents||[])].slice(0,2000),
+  });
 export const pendingFor=(p:PaperPortfolio):PaperEntryOrder[]=>p.pendingOrders||[];
 export function pendingReserve(p:PaperPortfolio,order:PaperEntryOrder):number{
   const pseudo:Asset={symbol:order.symbol,name:order.symbol,exchange:order.exchange,
@@ -96,9 +108,11 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
   if(request.kind==='market'||marketableLimit){
     // A marketable limit fills immediately at the observed quote, never at a
     // worse price than the limit. All fills remain explicitly simulated.
-    const filled=placePaperPosition(p,a,request.side,request.qty,leverage,request.tp,request.sl,now);
-    return withOrderReservations(applyTrailingStop(
+    const filled=placePaperPosition(p,a,request.side,request.qty,leverage,request.tp,request.sl,now,request.kind);
+    const final=withOrderReservations(applyTrailingStop(
       applyPartialTargets(filled,request.takeProfitLevels),request.trailingStopPercent));
+    return recordEvent(final,{id:filled.positions[0].id,symbol:a.symbol,exchange:a.source||a.exchange,
+      side:request.side,kind:request.kind,qty:request.qty,price:a.price},'filled',now,a.price);
   }
   const ttl=request.timeInForce==='Day'?86400000:request.timeInForce==='Week'?604800000:undefined;
   const order:PaperEntryOrder={
@@ -110,15 +124,19 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
     takeProfitLevels:request.takeProfitLevels,createdAt:now,
     expiresAt:ttl?now+ttl:undefined,status:'pending',
   };
-  return withOrderReservations({...p,pendingOrders:[...pendingFor(p),order]});
+  return recordEvent(withOrderReservations({...p,pendingOrders:[...pendingFor(p),order]}),order,'submitted',now);
 }
 export function cancelPaperOrder(p:PaperPortfolio,id:string):PaperPortfolio{
-  return withOrderReservations({...p,pendingOrders:pendingFor(p).filter(o=>o.id!==id)});
+  const order=pendingFor(p).find(o=>o.id===id);
+  if(!order)return p;
+  return recordEvent(withOrderReservations({...p,pendingOrders:pendingFor(p).filter(o=>o.id!==id)}),order,'canceled');
 }
 export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):PaperPortfolio{
   const old=pendingFor(p);
   const notExpired=old.filter(o=>!o.expiresAt||o.expiresAt>at);
   let next=withOrderReservations({...p,pendingOrders:notExpired});
+  for(const order of old.filter(o=>!!o.expiresAt&&o.expiresAt<=at))
+    next=recordEvent(next,order,'expired',at);
   if(!isFreshPaperQuote(a,at))return next;
   if(!notExpired.length)return markPaperPositions(next,a,at);
   const venue=a.source||a.exchange;
@@ -129,7 +147,7 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
     if(order.kind==='stop-limit' && triggered && order.status!=='triggered'){
       // Once activated, a stop-limit becomes a resting limit order. It must
       // NEVER fill merely because the stop traded through the trigger.
-      next={...next,pendingOrders:pendingFor(next).map(o=>o.id===order.id?{...o,status:'triggered'}:o)};
+      next=recordEvent({...next,pendingOrders:pendingFor(next).map(o=>o.id===order.id?{...o,status:'triggered'}:o)},order,'activated',at);
     }
     const limit=order.kind==='stop-limit'?order.limitPrice!:order.price;
     const limitReached=order.side==='Long'?a.price<=limit:a.price>=limit;
@@ -140,14 +158,16 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
     // observed trigger tick (slippage is possible, never promise the stop).
     const fillPrice=order.kind==='limit'||order.kind==='stop-limit'
       ?(order.side==='Long'?Math.min(a.price,limit):Math.max(a.price,limit)):a.price;
-    const without=cancelPaperOrder(next,order.id);
+    // A successful execution is a fill, not a cancellation.
+    const without=withOrderReservations({...next,pendingOrders:pendingFor(next).filter(o=>o.id!==order.id)});
     try{
       const synthetic={...a,price:fillPrice,quoteUpdatedAt:at,quoteStatus:'live' as const};
       // Attached exits must be valid against the actual executable fill.
       next=withOrderReservations(applyTrailingStop(
         applyPartialTargets(placePaperPosition(without,synthetic,order.side,
-          order.qty,order.leverage,order.tp,order.sl,at),order.takeProfitLevels),
+          order.qty,order.leverage,order.tp,order.sl,at,order.kind),order.takeProfitLevels),
         order.trailingStopPercent));
+      next=recordEvent(next,order,'filled',at,fillPrice);
     }catch{
       // Keep the pending instruction intact if the wallet cannot support
       // execution at the observed price or the bracket becomes invalid.
