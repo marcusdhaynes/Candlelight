@@ -1337,6 +1337,7 @@ export default function App() {
             paperSettings={paperPortfolio.settings}
             onClosePosition={handleClosePosition}
             pendingOrders={paperPortfolio.pendingOrders||[]}
+            orderEvents={paperPortfolio.orderEvents||[]}
             onCancelPendingOrder={handleCancelPendingOrder}
             activeAsset={activeAsset}
             onEditPosition={handleEditPaperStops}
