@@ -8,6 +8,7 @@ import {
   MarketNews,
   OHLCV,
   DetailedAlert,
+  AlertLogEntry,
   DependencyContext,
 } from '../types';
 import { WatchlistPanel } from './WatchlistPanel';
@@ -55,6 +56,8 @@ interface RightSidebarProps {
   bids: OrderBookItem[];
   trades: TradeItem[];
   detailedAlerts: DetailedAlert[];
+  alertLog: AlertLogEntry[];
+  notification: {id:string;message:string;type:'alert'|'info'}|null;
   onOpenCreateAlertModal: () => void;
   onToggleAlertStatus: (id: string) => void;
   onDeleteDetailedAlert: (id: string) => void;
@@ -83,6 +86,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   bids,
   trades,
   detailedAlerts,
+  alertLog,
+  notification,
   onOpenCreateAlertModal,
   onToggleAlertStatus,
   onDeleteDetailedAlert,
@@ -107,6 +112,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
           {activeTab === 'alerts' && (
             <AlertsPanel
               alerts={detailedAlerts}
+              alertLog={alertLog}
               onOpenCreateModal={onOpenCreateAlertModal}
               onToggleStatus={onToggleAlertStatus}
               onDeleteAlert={onDeleteDetailedAlert}
@@ -180,18 +186,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
             <div className="flex flex-col h-full bg-[#131722] p-2.5 overflow-y-auto">
               <div className="flex items-center justify-between mb-2.5">
                 <span className="font-semibold text-xs text-[#d1d4dc]">Notifications</span>
-                <span className="text-[9px] px-1.5 py-0.2 bg-[#f23645] text-white rounded-full font-bold">
-                  99+
-                </span>
+                {notification && <span className="text-[9px] px-1.5 py-0.2 bg-[#f23645] text-white rounded-full font-bold">1</span>}
               </div>
-              <div className="space-y-1.5 text-[11px]">
-                <div className="p-2 bg-[#1e222d] rounded border border-[#2a2e39]">
-                  <div className="font-medium text-white">TradingView Platform Update</div>
-                  <p className="text-[#787b86] text-[10px] mt-0.5">
-                    New custom pine scripts and multi-layout charting optimizations are live.
-                  </p>
-                </div>
-              </div>
+              {notification ? <div className="p-2 bg-[#1e222d] rounded border border-[#2a2e39] text-[11px]">
+                <div className="font-medium text-white">{notification.type === 'alert' ? 'Price alert' : 'Workspace notification'}</div>
+                <p className="text-[#d1d4dc] mt-1">{notification.message}</p>
+              </div> : <p className="text-[#787b86] text-[11px]">No current notifications. Alerts are evaluated only while Candlelight is running.</p>}
             </div>
           )}
         </div>
@@ -344,9 +344,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
             title="Notifications"
           >
             <Bell className="w-3.5 h-3.5" />
-            <span className="absolute -top-0.5 -right-1 px-0.5 py-0 bg-[#f23645] text-white text-[7.5px] font-bold rounded-full flex items-center justify-center">
-              99+
-            </span>
+            {notification && <span className="absolute -top-0.5 -right-1 px-0.5 py-0 bg-[#f23645] text-white text-[7.5px] font-bold rounded-full flex items-center justify-center">1</span>}
           </button>
         </div>
 
