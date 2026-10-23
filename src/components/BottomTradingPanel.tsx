@@ -5,7 +5,7 @@ import type {Asset, PaperAccount, PaperPosition} from '../types';
 import type {ConditionalOrder,DependencyContext} from '../types/conditionalOrders';
 import type {PaperFill} from '../services/paperTrading';
 import {accountLeverage,isFreshPaperQuote,marketPaperCategory,type PaperSettings} from '../services/paperTrading';
-import type {PaperEntryOrder} from '../services/paperOrders';
+import type {PaperEntryOrder,PaperOrderEvent} from '../services/paperOrders';
 import type {PaperAccountRecord} from '../services/paperAccounts';
 import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
@@ -21,6 +21,7 @@ export interface BottomTradingPanelProps {
   onClosePosition:(id:string)=>void;
   onOpenTicket:()=>void;
   pendingOrders:PaperEntryOrder[];
+  orderEvents:PaperOrderEvent[];
   onCancelPendingOrder:(id:string)=>void;
   onEditPosition:(id:string,tp?:number,sl?:number,trailing?:number|null)=>void;
   onResetPaper:()=>void; paperError:string; fills:PaperFill[];
@@ -44,7 +45,7 @@ const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFra
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,paperError,fills,
-  onOpenTicket,pendingOrders,onCancelPendingOrder,
+  onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
   onDeleteConditionalOrder,onTestTriggerConditionalOrder,isOpen,setIsOpen,isExpanded,setIsExpanded,
@@ -71,6 +72,22 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   const [editTrailingEnabled,setEditTrailingEnabled]=useState(false);
   const [editTrailingPercent,setEditTrailingPercent]=useState('0.50');
   const live=isFreshPaperQuote(activeAsset);
+  // Settled cash balance history is reconstructed from execution ledger entries,
+  // never from fabricated equity snapshots.
+  let runningBalance=paperSettings.startingBalance;
+  const balanceRows=[...fills].reverse().map(fill=>{
+    runningBalance+=fill.realizedPnL;
+    return {fill,balance:runningBalance};
+  }).reverse();
+  const orderHistory=orderEvents.filter((event,index)=>
+    orderEvents.findIndex(other=>other.orderId===event.orderId)===index);
+  const closedTrades=fills.filter(f=>f.note.toLowerCase().includes('close'));
+  const openingFill=(id:string)=>fills.find(f=>f.positionId===id&&f.note.toLowerCase().startsWith('open'));
+  const timeline=[...orderEvents.map(event=>({id:event.id,at:event.at,
+    message:`${event.action.toUpperCase()} ${event.kind.toUpperCase()} ${event.side} ${event.qty} ${event.symbol} @ ${amount(event.price)}`})),
+    ...fills.filter(f=>f.note.toLowerCase().includes('close')).map(f=>({
+      id:f.id,at:f.timestamp,message:`${f.note.toUpperCase()} ${f.quantity} ${f.symbol} @ ${amount(f.price)} · P&L ${cash(f.realizedPnL)}`,
+    }))].sort((a,b)=>b.at-a.at);
   const exportCsv=()=>{
     const rows=[['Time','Market','Source','Action','Quantity','Price','Fee','Realized PnL'],...fills.map(f=>
       [new Date(f.timestamp).toISOString(),f.symbol,f.exchange,f.note,String(f.quantity),String(f.price),String(f.fee),String(f.realizedPnL)])];
@@ -81,7 +98,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   };
   if(!isOpen)return <button type="button" onClick={()=>setIsOpen(true)}
     className="h-6 bg-[#1e222d] border-t border-[#2a2e39] px-3 flex items-center gap-3 text-[11px] text-[#d1d4dc]">
-    <strong>Paper Trading</strong><span>Equity ${cash(account.equity)}</span><span>Open {positions.length}</span>
+    <strong>Paper Trading</strong><span>Equity {cash(account.equity)} {paperSettings.currency}</span><span>Open {positions.length}</span>
   </button>;
   return <section className={`border-t border-[#2a2e39] bg-[#131722] flex flex-col text-[#d1d4dc] z-20 ${isExpanded?'h-[450px]':'h-[295px]'}`}>
     <header className="flex items-center gap-3 px-3 py-1.5 border-b border-[#2a2e39] text-[11px] bg-[#171b25] flex-wrap">
@@ -139,7 +156,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
         className={`rounded px-2 py-1 ${tab===id?'bg-[#2a3142] text-white':'text-[#9197a5] hover:bg-[#212633]'}`}>
         {name}{id==='positions'?` (${positions.length})`:id==='orders'?` (${conditionalOrders.length+pendingOrders.length})`:''}
       </button>)}
-      <button type="button" className="ml-auto px-2 text-[#a5aabc]" title="Export trade history as CSV" onClick={exportCsv}><Download size={15}/></button>
+      <button type="button" className="ml-auto px-2 text-[#a5aabc]" title="Export settled paper executions as CSV" onClick={exportCsv}><Download size={15}/></button>
     </nav>
     <div className="flex-1 min-h-0 overflow-y-auto text-[11px]">
       {tab==='positions'&&<table className="w-full text-left">
@@ -194,12 +211,12 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       </tbody></table>}
       {tab==='orders'&&<div className="space-y-2">
         <div className="flex justify-between items-center px-3 pt-2">
-          <strong className="text-[#e6e9f0]">Pending limit / stop orders ({pendingOrders.length})</strong>
+          <strong className="text-[#e6e9f0]">Pending entries ({pendingOrders.length})</strong>
           <button className="text-[#79aaff]" onClick={onOpenTicket}>+ Create order</button>
         </div>
         {pendingOrders.map(o=><div key={o.id} className="border-b border-[#313641] p-2 flex items-center gap-3 flex-wrap">
           <strong>{o.symbol}</strong><span className={o.side==='Long'?'text-[#2cbd99]':'text-[#f06a7b]'}>{o.side}</span>
-          <span>{o.kind.toUpperCase()} @ {amount(o.price)}</span><span>{amount(o.qty)} units · {o.exchange}</span>
+          <span>{o.kind.toUpperCase()} @ {amount(o.price)}{o.kind==='stop-limit'?' → limit '+amount(o.limitPrice||0):''}</span><span>{amount(o.qty)} units · {o.exchange}</span><span className="text-[#a8bcf8]">{o.status==='triggered'?'Activated · waiting for limit':'Pending'}</span>
           <span className="text-[#adb4c3]">Expires: {o.expiresAt?new Date(o.expiresAt).toLocaleString():'GTC'}</span>
           <button className="ml-auto text-[#f58b95] hover:underline" onClick={()=>onCancelPendingOrder(o.id)}>Cancel</button>
         </div>)}
@@ -208,12 +225,39 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           onEditOrder={onEditConditionalOrder} onToggleStatus={onToggleConditionalOrderStatus}
           onDeleteOrder={onDeleteConditionalOrder} onTestTrigger={onTestTriggerConditionalOrder}/></div>
       </div>}
-      {['orderHistory','balanceHistory','activityLog','tradeHistory'].includes(tab)&&<div>
-        {fills.length?fills.map(f=><div key={f.id} className="grid grid-cols-6 gap-2 p-2 border-b border-[#313641]">
-          <span>{new Date(f.timestamp).toLocaleString()}</span><span>{f.exchange} · {f.symbol}</span>
-          <span>{f.note} · {f.side}</span><span>{amount(f.quantity)} @ {amount(f.price)}</span>
-          <span>Fee: {cash(f.fee)}</span><span className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>Net: {cash(f.realizedPnL)}</span>
-        </div>):<p className="p-5 text-[#8792a6]">No paper executions yet.</p>}
+      {tab==='orderHistory'&&<div>
+        {orderHistory.length?orderHistory.map(o=><div key={o.id} className="grid grid-cols-6 gap-2 p-2 border-b border-[#313641]">
+          <span>{new Date(o.at).toLocaleString()}</span>
+          <span>{o.exchange} · {o.symbol}</span>
+          <span className="uppercase">{o.side} · {o.kind}</span>
+          <span>{amount(o.qty)} units</span>
+          <span>{amount(o.price)} {paperSettings.currency}</span>
+          <strong className="capitalize">{o.action==='submitted'?'Pending':o.action}</strong>
+        </div>):<p className="p-5 text-[#8792a6]">No recorded orders yet.</p>}
+      </div>}
+      {tab==='balanceHistory'&&<div>
+        <div className="flex justify-between px-3 py-2 text-[#a9b1c0]"><span>Starting cash balance</span><strong>{cash(paperSettings.startingBalance)} {paperSettings.currency}</strong></div>
+        {balanceRows.map(({fill,balance})=><div key={fill.id} className="grid grid-cols-4 gap-2 p-2 border-b border-[#313641]">
+          <span>{new Date(fill.timestamp).toLocaleString()}</span><span>{fill.note} · {fill.symbol}</span>
+          <span className={fill.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{fill.realizedPnL>=0?'+':''}{cash(fill.realizedPnL)}</span>
+          <strong className="text-right">{cash(balance)} {paperSettings.currency}</strong>
+        </div>)}
+        <p className="p-2 text-[#818b9d]">Settled balance only. Unrealized equity changes are not historical cash transactions.</p>
+      </div>}
+      {tab==='activityLog'&&<div>
+        {timeline.length?timeline.map(e=><div key={e.id} className="flex gap-4 p-2 border-b border-[#313641]">
+          <span className="text-[#919cad] shrink-0">{new Date(e.at).toLocaleString()}</span><span>{e.message}</span>
+        </div>):<p className="p-5 text-[#8792a6]">No paper account activity yet.</p>}
+      </div>}
+      {tab==='tradeHistory'&&<div>
+        {closedTrades.length?closedTrades.map(f=><div key={f.id} className="grid grid-cols-6 gap-2 p-2 border-b border-[#313641]">
+          <span>{new Date(f.timestamp).toLocaleString()}</span>
+          <span>{f.exchange} · {f.symbol}</span>
+          <span>{f.note} · {f.side}</span>
+          <span>{amount(f.quantity)} units</span>
+          <span>{openingFill(f.positionId)?'Entry '+amount(openingFill(f.positionId)!.price):'Entry unavailable'} → {amount(f.price)}</span>
+          <strong className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(f.realizedPnL)} {paperSettings.currency}</strong>
+        </div>):<p className="p-5 text-[#8792a6]">No closed paper trades yet.</p>}
       </div>}
       {tab==='analytics'&&<div className="p-4 flex flex-wrap gap-6">
         <span>Starting capital: {paperSettings.startingBalance.toLocaleString()} {paperSettings.currency}</span><span>Completed closes: {fills.filter(f=>f.note.toLowerCase().includes('close')).length}</span>
