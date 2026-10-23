@@ -5,24 +5,24 @@ import {
 } from './paperTrading';
 
 export type PaperOrderSide='Long'|'Short';
-export type PaperOrderKind='market'|'limit'|'stop';
+export type PaperOrderKind='market'|'limit'|'stop'|'stop-limit';
 export type PaperTimeInForce='GTC'|'Day'|'Week';
 export interface PaperEntryOrder {
   id:string;
   symbol:string;exchange:string;
-  side:PaperOrderSide;kind:'limit'|'stop';
-  qty:number;price:number;currency:string;
+  side:PaperOrderSide;kind:'limit'|'stop'|'stop-limit';
+  qty:number;price:number;limitPrice?:number;currency:string;
   assetCategory:Asset['category'];marketType:Asset['marketType'];
   leverage:number;tp?:number;sl?:number;
   trailingStopPercent?:number;
   takeProfitLevels?:PaperPartialTarget[];
   createdAt:number;expiresAt?:number;
-  status:'pending';
+  status:'pending'|'triggered';
 }
 export interface PaperPartialTarget {price:number;sharePercent:number}
 export interface PaperOrderRequest {
   side:PaperOrderSide;kind:PaperOrderKind;qty:number;
-  price?:number;tp?:number;sl?:number;timeInForce?:PaperTimeInForce;
+  price?:number;limitPrice?:number;tp?:number;sl?:number;timeInForce?:PaperTimeInForce;
   trailingStopPercent?:number;
   takeProfitLevels?:PaperPartialTarget[];
 }
@@ -31,9 +31,10 @@ export const pendingFor=(p:PaperPortfolio):PaperEntryOrder[]=>p.pendingOrders||[
 export function pendingReserve(p:PaperPortfolio,order:PaperEntryOrder):number{
   const pseudo:Asset={symbol:order.symbol,name:order.symbol,exchange:order.exchange,
     category:order.assetCategory,marketType:order.marketType,
-    price:order.price,change24h:0,changePercent24h:0,high24h:0,low24h:0,
+    price:order.kind==='stop-limit'?(order.limitPrice||order.price):order.price,change24h:0,changePercent24h:0,high24h:0,low24h:0,
     volume24h:'',digits:6,currency:order.currency};
-  return order.qty*order.price/order.leverage+paperCommission(p.settings,pseudo,order.qty,order.price);
+  const executionPrice=order.kind==='stop-limit'?(order.limitPrice||order.price):order.price;
+  return order.qty*executionPrice/order.leverage+paperCommission(p.settings,pseudo,order.qty,executionPrice);
 }
 export function withOrderReservations(p:PaperPortfolio):PaperPortfolio{
   const base=recalculatePaperPortfolio(p);
@@ -48,11 +49,15 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
   const leverage=accountLeverage(p.settings,a);
   if(request.kind!=='market'&&!finitePositive(request.price??NaN))throw new Error('Enter a valid limit/stop trigger price.');
   const price=request.kind==='market'?a.price:request.price!;
-  if(request.kind==='stop'&&(request.side==='Long'?price<=a.price:price>=a.price))
+  if((request.kind==='stop'||request.kind==='stop-limit') &&
+     (request.side==='Long'?price<=a.price:price>=a.price))
     throw new Error('Stop entry must be above current price to buy or below to sell.');
-  if(request.tp!==undefined&&(!finitePositive(request.tp)||(request.side==='Long'?request.tp<=price:request.tp>=price)))
+  if(request.kind==='stop-limit'&&!finitePositive(request.limitPrice??NaN))
+    throw new Error('Enter a positive stop-limit execution price.');
+  const entryPrice=request.kind==='stop-limit'?request.limitPrice!:price;
+  if(request.tp!==undefined&&(!finitePositive(request.tp)||(request.side==='Long'?request.tp<=entryPrice:request.tp>=entryPrice)))
     throw new Error('Take-profit price must be on the profitable side of entry.');
-  if(request.sl!==undefined&&(!finitePositive(request.sl)||(request.side==='Long'?request.sl>=price:request.sl<=price)))
+  if(request.sl!==undefined&&(!finitePositive(request.sl)||(request.side==='Long'?request.sl>=entryPrice:request.sl<=entryPrice)))
     throw new Error('Stop-loss price must be on the protective side of entry.');
   if(request.trailingStopPercent!==undefined &&
     (!Number.isFinite(request.trailingStopPercent) ||
@@ -63,12 +68,12 @@ export function withOrderValidation(p:PaperPortfolio,a:Asset,request:PaperOrderR
     if(Math.abs(sum-100)>0.001)throw new Error('Take-profit levels must allocate exactly 100% of the position.');
     for(const target of request.takeProfitLevels){
       if(!finitePositive(target.sharePercent)||!finitePositive(target.price)||
-        (request.side==='Long'?target.price<=price:target.price>=price))
+        (request.side==='Long'?target.price<=entryPrice:target.price>=entryPrice))
         throw new Error('Every take-profit level needs a positive size and profitable target price.');
     }
   }
   const cash=withOrderReservations(p).account.availableFunds;
-  const required=request.qty*price/leverage+paperCommission(p.settings,a,request.qty,price);
+  const required=request.qty*entryPrice/leverage+paperCommission(p.settings,a,request.qty,entryPrice);
   if(required>cash+1e-8)throw new Error('Insufficient free margin after accounting for pending orders and commissions.');
   return {leverage,price};
 }
@@ -99,7 +104,7 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
   const order:PaperEntryOrder={
     id:'pending-'+now+'-'+Math.random().toString(36).slice(2,9),
     symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind,
-    qty:request.qty,price,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
+    qty:request.qty,price,limitPrice:request.limitPrice,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
     leverage,tp:request.tp,sl:request.sl,
     trailingStopPercent:request.trailingStopPercent,
     takeProfitLevels:request.takeProfitLevels,createdAt:now,
@@ -119,14 +124,22 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
   const venue=a.source||a.exchange;
   for(const order of [...notExpired]){
     if(order.symbol!==a.symbol||order.exchange!==venue)continue;
-    const hit=order.kind==='limit'?
-      (order.side==='Long'?a.price<=order.price:a.price>=order.price):
-      (order.side==='Long'?a.price>=order.price:a.price<=order.price);
+    const triggerReached=order.side==='Long'?a.price>=order.price:a.price<=order.price;
+    const triggered=order.kind==='stop-limit' && (order.status==='triggered'||triggerReached);
+    if(order.kind==='stop-limit' && triggered && order.status!=='triggered'){
+      // Once activated, a stop-limit becomes a resting limit order. It must
+      // NEVER fill merely because the stop traded through the trigger.
+      next={...next,pendingOrders:pendingFor(next).map(o=>o.id===order.id?{...o,status:'triggered'}:o)};
+    }
+    const limit=order.kind==='stop-limit'?order.limitPrice!:order.price;
+    const limitReached=order.side==='Long'?a.price<=limit:a.price>=limit;
+    const hit=order.kind==='limit'?limitReached:
+      order.kind==='stop'?triggerReached:(triggered&&limitReached);
     if(!hit)continue;
-    // Use observed market price, not the trigger/limit number, for the paper fill.
-    // If a limit gaps through, cap the favorable fill at the requested limit.
-    const fillPrice=order.kind==='limit'?
-      (order.side==='Long'?Math.min(a.price,order.price):Math.max(a.price,order.price)):a.price;
+    // Limits may fill at the observed price or better; stops fill at the
+    // observed trigger tick (slippage is possible, never promise the stop).
+    const fillPrice=order.kind==='limit'||order.kind==='stop-limit'
+      ?(order.side==='Long'?Math.min(a.price,limit):Math.max(a.price,limit)):a.price;
     const without=cancelPaperOrder(next,order.id);
     try{
       const synthetic={...a,price:fillPrice,quoteUpdatedAt:at,quoteStatus:'live' as const};
@@ -155,6 +168,14 @@ export function estimatePaperQty(p:PaperPortfolio,a:Asset,percent:number,price:n
     qty=Math.max(0,(free*fraction-fee)*leverage/price);
   }
   return Number(qty.toPrecision(11));
+}
+/** Dollar-risk sizing uses the protective stop distance, independent of leverage.
+ * Leverage changes required margin, not the dollar P&L per unit. */
+export function paperRiskSizedQty(entry:number,stop:number,riskCurrency:number):number{
+  const distance=Math.abs(entry-stop);
+  if(!finitePositive(entry)||!finitePositive(stop)||!finitePositive(riskCurrency)||
+     !Number.isFinite(distance)||distance<1e-12)return 0;
+  return Number((riskCurrency/distance).toPrecision(11));
 }
 export type PaperExitMode='price'|'ticks'|'percent'|'money'|'balance';
 export function exitPriceFromValue(entry:number,qty:number,side:PaperOrderSide,
