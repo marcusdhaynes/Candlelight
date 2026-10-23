@@ -799,6 +799,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
         <button
           className="p-1 text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#1e222d] rounded transition"
           title="Select Chart Layout Grid"
+          onClick={() => { setIsLayoutDropdownOpen(true); setIsLayoutManagerOpen(false); }}
         >
           <LayoutGrid className="w-3 h-3" />
         </button>
