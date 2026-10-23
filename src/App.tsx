@@ -12,14 +12,12 @@ import {
   Timeframe,
   TradeItem,
   Watchlist,
-  MarketNews,
   DetailedAlert,
   PaperPosition,
 } from './types';
 import {
   INITIAL_ASSETS,
   INITIAL_WATCHLISTS,
-  SAMPLE_NEWS,
   INITIAL_DRAWINGS,
 } from './data/assets';
 import {
@@ -1377,7 +1375,7 @@ export default function App() {
           onOpenCreateAlertModal={() => setIsAlertsOpen(true)}
           onToggleAlertStatus={handleToggleAlertStatus}
           onDeleteDetailedAlert={handleDeleteDetailedAlert}
-          news={SAMPLE_NEWS}
+          news={[]}
           candles={candles}
           isOpen={isRightSidebarOpen}
           setIsOpen={setIsRightSidebarOpen}
