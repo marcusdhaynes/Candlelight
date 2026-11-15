@@ -157,12 +157,13 @@ export function loadPaperAccounts(markets:Asset[]=INITIAL_ASSETS):PaperAccountsS
           return initialPaperAccounts();
         }
       }
-      const accounts=raw.accounts.map(entry=>{
+      const verified=raw as PaperAccountsState;
+      const accounts=verified.accounts.map(entry=>{
         const settings=normalizePaperSettings(entry.portfolio.settings);
         return {...entry,portfolio:withOrderReservations({...entry.portfolio,settings}),
           orders:(entry.orders||[]).map(o=>!ruleCanActivate(o)?{...o,status:'paused' as const}:o)};
       });
-      return {accounts,activeId:raw.activeId};
+      return {accounts,activeId:verified.activeId};
     }
     // Migrate genuine saved v2 trades, but do not inherit its forced 0.04% rate
     // or recreate prior demo positions from the legacy initial-assets constant.
