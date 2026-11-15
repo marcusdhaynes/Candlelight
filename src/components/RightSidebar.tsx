@@ -48,6 +48,9 @@ interface RightSidebarProps {
   onSelectAsset: (asset: Asset) => void;
   watchlists: Watchlist[];
   setWatchlists: React.Dispatch<React.SetStateAction<Watchlist[]>>;
+  watchlistRecoveryBlocked?:boolean;
+  watchlistStorageError?:string;
+  onResetCorruptWatchlists?:()=>void;
   activeWatchlistId: string;
   setActiveWatchlistId: (id: string) => void;
   onOpenAddSymbolModal: () => void;
@@ -78,6 +81,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
   onSelectAsset,
   watchlists,
   setWatchlists,
+  watchlistRecoveryBlocked,
+  watchlistStorageError,
+  onResetCorruptWatchlists,
   activeWatchlistId,
   setActiveWatchlistId,
   onOpenAddSymbolModal,
@@ -127,6 +133,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = React.memo(({
               onSelectAsset={onSelectAsset}
               watchlists={watchlists}
               setWatchlists={setWatchlists}
+              watchlistRecoveryBlocked={watchlistRecoveryBlocked}
+              watchlistStorageError={watchlistStorageError}
+              onResetCorruptWatchlists={onResetCorruptWatchlists}
               activeWatchlistId={activeWatchlistId}
               setActiveWatchlistId={setActiveWatchlistId}
               onOpenAddSymbolModal={onOpenAddSymbolModal}

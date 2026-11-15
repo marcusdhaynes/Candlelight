@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Asset, Watchlist, AssetCategory } from '../types';
 import {marketIdentity,resolveWatchlistEntry} from '../services/marketIdentity';
+import {WATCHLIST_BACKUP_KEY} from '../services/watchlistStorage';
 import {
   Plus,
   Trash2,
@@ -20,6 +21,9 @@ interface WatchlistPanelProps {
   onSelectAsset: (asset: Asset) => void;
   watchlists: Watchlist[];
   setWatchlists: React.Dispatch<React.SetStateAction<Watchlist[]>>;
+  watchlistRecoveryBlocked?:boolean;
+  watchlistStorageError?:string;
+  onResetCorruptWatchlists?:()=>void;
   activeWatchlistId: string;
   setActiveWatchlistId: (id: string) => void;
   onOpenAddSymbolModal: () => void;
@@ -32,6 +36,9 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
   onSelectAsset,
   watchlists,
   setWatchlists,
+  watchlistRecoveryBlocked=false,
+  watchlistStorageError,
+  onResetCorruptWatchlists,
   activeWatchlistId,
   setActiveWatchlistId,
   onOpenAddSymbolModal,
@@ -73,7 +80,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
 
   const handleCreateWatchlist = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newListName.trim()) return;
+    if (!newListName.trim()||watchlistRecoveryBlocked) return;
 
     const newList: Watchlist = {
       id: 'wl-' + Date.now(),
@@ -90,6 +97,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
 
   const handleRemoveSymbol = (symbolToRemove: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if(watchlistRecoveryBlocked)return;
     setWatchlists((prev) =>
       prev.map((wl) => {
         if (wl.id === currentWatchlist.id) {
@@ -121,6 +129,18 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
 
   return (
     <div id="watchlist-panel" className="flex flex-col h-full bg-[#131722] select-none text-[11px]">
+      {watchlistRecoveryBlocked&&<div role="alert" className="flex flex-col gap-1 p-2 bg-[#392b24] text-[#ffd9a5]">
+        Saved watchlists are locked: malformed entries were preserved in a recovery backup.
+        <div className="flex gap-3">
+          <button className="underline" onClick={()=>{
+            const raw=localStorage.getItem(WATCHLIST_BACKUP_KEY);if(!raw)return;
+            const url=URL.createObjectURL(new Blob([raw],{type:'application/json'}));
+            const link=document.createElement('a');link.href=url;link.download='candlelight-watchlists-recovery.json';link.click();URL.revokeObjectURL(url);
+          }}>Export backup</button>
+          <button className="underline" onClick={onResetCorruptWatchlists}>Start fresh (keep backup)</button>
+        </div>
+      </div>}
+      {watchlistStorageError&&<p role="alert" className="px-2 py-1 text-[#ffc2c2]">{watchlistStorageError}</p>}
       {/* Watchlist Header & Dropdown */}
       <div className="p-1.5 px-2 border-b border-[#2a2e39] bg-[#1e222d]/60">
         <div className="flex items-center justify-between mb-1.5">
@@ -181,8 +201,9 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
           {/* Add Symbol button */}
           <button
             id="add-symbol-to-watchlist-btn"
+            disabled={watchlistRecoveryBlocked}
             onClick={onOpenAddSymbolModal}
-            className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-[#2962ff] bg-[#2962ff]/10 hover:bg-[#2962ff]/20 rounded transition"
+            className="disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-[#2962ff] bg-[#2962ff]/10 hover:bg-[#2962ff]/20 rounded transition"
             title="Add symbol to this watchlist"
           >
             <Plus className="w-3 h-3" />

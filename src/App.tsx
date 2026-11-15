@@ -56,6 +56,7 @@ import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity,alertMarketIdentity} from './services/marketIdentity';
+import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
 
@@ -133,16 +134,27 @@ export default function App() {
   const [isLoadingCandles, setIsLoadingCandles] = useState(true);
 
   // State: Watchlists
-  const [watchlists, setWatchlists] = useState<Watchlist[]>(() => {
-    // Prior releases wrote tv_watchlists but read tv_watchlists_v4.
-    // Migrate the most recently saved legacy list before retiring that key.
-    const legacy = readLocalJson<Watchlist[] | null>('tv_watchlists', null);
-    const stored = legacy ?? readLocalJson<Watchlist[] | null>('tv_watchlists_v4', null);
-    const valid = Array.isArray(stored) ? stored.filter(item =>
-      item && typeof item.id==='string' && typeof item.name==='string' &&
-      Array.isArray(item.symbols) && item.symbols.every(s=>typeof s==='string')) : [];
-    return valid.length > 0 ? valid : INITIAL_WATCHLISTS;
-  });
+  const [watchlists,setWatchlistsRaw]=useState<Watchlist[]>(()=>loadWatchlists(INITIAL_WATCHLISTS));
+  const [watchlistStorageError,setWatchlistStorageError]=useState('');
+  const watchlistRecoveryBlocked=isWatchlistStorageBlocked();
+  const setWatchlists:React.Dispatch<React.SetStateAction<Watchlist[]>>=(change)=>{
+    if(isWatchlistStorageBlocked()){
+      setWatchlistStorageError('Saved watchlists are quarantined. Export the backup before resetting.');
+      return;
+    }
+    setWatchlistsRaw(change);
+  };
+  const resetCorruptWatchlists=()=>{
+    if(!isWatchlistStorageBlocked())return;
+    try{
+      if(!localStorage.getItem(WATCHLIST_BACKUP_KEY))throw Error('No recovery backup exists; original collection is preserved.');
+      if(!window.confirm('Your original watchlists are backed up. Reset active watchlists to defaults? Export the backup first.'))return;
+      localStorage.removeItem(WATCHLIST_KEY);
+      localStorage.removeItem(WATCHLIST_LEGACY_KEY);
+      setWatchlistsRaw(INITIAL_WATCHLISTS);
+      setWatchlistStorageError('');
+    }catch(error){setWatchlistStorageError(error instanceof Error?error.message:'Watchlist recovery failed');}
+  };
   const [activeWatchlistId, setActiveWatchlistId] = useState<string>(() => {
     const saved = localStorage.getItem('tv_active_watchlist_id');
     return saved && watchlists.some(w=>w.id===saved) ? saved : watchlists[0].id;
@@ -934,9 +946,11 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('tv_watchlists_v4', JSON.stringify(watchlists));
-      localStorage.removeItem('tv_watchlists');
-    } catch (error) { console.warn('Unable to persist watchlist', error); }
+      persistWatchlists(watchlists);
+    } catch (error) {
+      console.warn('Unable to persist watchlist', error);
+      setWatchlistStorageError(error instanceof Error?error.message:'Watchlists could not be saved');
+    }
   }, [watchlists]);
 
   // Drawings are persisted under tv_drawings_by_market_v1 by exact market.
@@ -1543,6 +1557,9 @@ export default function App() {
           onSelectAsset={handleSelectAsset}
           watchlists={watchlists}
           setWatchlists={setWatchlists}
+          watchlistRecoveryBlocked={watchlistRecoveryBlocked}
+          watchlistStorageError={watchlistStorageError}
+          onResetCorruptWatchlists={resetCorruptWatchlists}
           activeWatchlistId={activeWatchlistId}
           setActiveWatchlistId={setActiveWatchlistId}
           onOpenAddSymbolModal={() => {setAddingWatchlistSymbol(true);setIsSymbolSearchOpen(true);}}
