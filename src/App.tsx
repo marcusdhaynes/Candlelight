@@ -55,12 +55,12 @@ import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
-import {marketIdentity,alertMarketIdentity} from './services/marketIdentity';
+import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
 
-const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
+const assetIdentity = marketIdentity;
 function readLocalJson<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw) as T; }
   catch { return fallback; }
@@ -106,9 +106,14 @@ export default function App() {
     const savedSym = localStorage.getItem('tv_active_symbol');
     const savedVenue = localStorage.getItem('candlelight_active_source');
     const savedType = localStorage.getItem('candlelight_active_market_type');
+    const savedChain=localStorage.getItem('candlelight_active_chain_id');
+    const savedPool=localStorage.getItem('candlelight_active_pair_address');
     if (savedSym) {
-      const exact = assets.find(a => a.symbol === savedSym && (a.source || a.exchange) === savedVenue && (a.marketType || '') === savedType);
-      if (exact) return exact;
+      const matches=assets.filter(a=>a.symbol===savedSym&&(a.source||a.exchange)===savedVenue&&
+        (a.marketType||'')===savedType&&
+        (!a.pairAddress?!savedPool:a.pairAddress.toLowerCase()===savedPool?.toLowerCase())&&
+        (!a.chainId?!savedChain:a.chainId.toLowerCase()===savedChain?.toLowerCase()));
+      if(matches.length===1)return matches[0];
       if(!savedVenue){
         const matches=assets.filter(a=>a.symbol===savedSym);
         if(matches.length===1)return matches[0];
@@ -208,6 +213,24 @@ export default function App() {
     return {};
   });
   const drawings=drawingsByMarket[marketIdentity(activeAsset)]||[];
+  // Backward-compatible preservation: copy older DEX drawings only when
+  // the former three-part market key maps to one and only one pool.
+  useEffect(()=>{
+    setDrawingsByMarket(prev=>{
+      let next=prev;
+      for(const asset of assets){
+        if(!asset.pairAddress||!asset.chainId)continue;
+        const oldKey=[asset.symbol,asset.source||asset.exchange,asset.marketType||''].join('|');
+        const exactKey=marketIdentity(asset);
+        const matches=assets.filter(a=>[a.symbol,a.source||a.exchange,a.marketType||''].join('|')===oldKey);
+        if(matches.length===1 && prev[oldKey] && !prev[exactKey]){
+          if(next===prev)next={...prev};
+          next[exactKey]=structuredClone(prev[oldKey]);
+        }
+      }
+      return next;
+    });
+  },[assets]);
   const setDrawingsForMarket=useCallback((asset:Asset,change:React.SetStateAction<Drawing[]>)=>{
     const key=marketIdentity(asset);
     setDrawingsByMarket(prev=>{
@@ -218,7 +241,8 @@ export default function App() {
   },[]);
   const setDrawings=useCallback<React.Dispatch<React.SetStateAction<Drawing[]>>>(
     change=>setDrawingsForMarket(activeAsset,change),
-    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,setDrawingsForMarket]);
+    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+      activeAsset.chainId,activeAsset.pairAddress,setDrawingsForMarket]);
   useEffect(()=>{
     try{localStorage.setItem('tv_drawings_by_market_v1',JSON.stringify(drawingsByMarket));}
     catch(e){console.warn('Could not save per-market drawings',e);}
@@ -226,7 +250,8 @@ export default function App() {
   const [drawingHistory, setDrawingHistory] = useState<Drawing[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   useEffect(()=>{setDrawingHistory([]);setHistoryIndex(-1);},
-    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType]);
+    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+      activeAsset.chainId,activeAsset.pairAddress]);
 
   // State: Indicators
   const [indicators, setIndicators] = useState<IndicatorSettings>(() => {
@@ -368,7 +393,8 @@ export default function App() {
     void poll();
     const interval=window.setInterval(()=>{void poll();},20000);
     return ()=>{stopped=true;window.clearInterval(interval);};
-  },[monitoredAlertKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,processPriceAlertTick]);
+  },[monitoredAlertKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+    activeAsset.chainId,activeAsset.pairAddress,assets,processPriceAlertTick]);
 
 
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
@@ -506,10 +532,9 @@ export default function App() {
   // Held paper positions and pending orders need real, venue-scoped stream
   // updates; REST snapshots must never fill a pending order or protective stop.
   const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(record=>[
-    ...record.portfolio.positions.map(p=>[p.symbol,p.exchange,p.marketType||''].join('|')),
-    ...(record.portfolio.pendingOrders||[]).map(o=>[o.symbol,o.exchange,o.marketType||''].join('|')),
-    ...record.orders.filter(o=>o.status==='active'&&ruleCanActivate(o))
-      .map(o=>[o.symbol,o.exchange,o.marketType||''].join('|')),
+    ...record.portfolio.positions.map(marketIdentity),
+    ...(record.portfolio.pendingOrders||[]).map(marketIdentity),
+    ...record.orders.filter(o=>o.status==='active'&&ruleCanActivate(o)).map(marketIdentity),
   ]))].sort().join('~');
   useEffect(()=>{
     const activeKey=marketIdentity(activeAsset);
@@ -530,7 +555,8 @@ export default function App() {
       }));
     }
     return ()=>{stopped=true;unsubs.forEach(unsub=>unsub());};
-  },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,executeObservedTick,processPriceAlertTick]);
+  },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+    activeAsset.chainId,activeAsset.pairAddress,assets,executeObservedTick,processPriceAlertTick]);
   useEffect(() => {
     const expire = () => setPaperAccounts(prev => {
       let changed = false;
@@ -669,6 +695,7 @@ export default function App() {
         shareEnabled: false,
         windows: [{id:'win-0',symbol:activeAsset.symbol,
           source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType,
+          chainId:activeAsset.chainId,pairAddress:activeAsset.pairAddress,
           timeframe:activeTimeframe}],
         activeWindowIndex: 0,
       },
@@ -691,7 +718,8 @@ export default function App() {
       preserveInvalidPreference('tv_chart_window_states');
     }
     return [{ id:'win-0',symbol:activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,
-      marketType:activeAsset.marketType,timeframe:activeTimeframe }];
+      marketType:activeAsset.marketType,chainId:activeAsset.chainId,pairAddress:activeAsset.pairAddress,
+      timeframe:activeTimeframe }];
   });
 
   const [activeWindowIndex, setActiveWindowIndex] = useState<number>(0);
@@ -968,7 +996,10 @@ export default function App() {
     localStorage.setItem('tv_active_symbol', activeAsset.symbol);
     localStorage.setItem('candlelight_active_source', activeAsset.source || activeAsset.exchange);
     localStorage.setItem('candlelight_active_market_type', activeAsset.marketType || '');
-  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType]);
+    localStorage.setItem('candlelight_active_chain_id',activeAsset.chainId||'');
+    localStorage.setItem('candlelight_active_pair_address',activeAsset.pairAddress||'');
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType,
+    activeAsset.chainId,activeAsset.pairAddress]);
 
   useEffect(() => {
     localStorage.setItem('tv_timeframe', activeTimeframe);
@@ -1339,7 +1370,8 @@ export default function App() {
     setMarketStatus({ connected: false, provider: 'Connecting to ' + (selected.source || selected.exchange), latencyMs: 0 });
     setActiveAsset(selected);
     setWindowStates(prev=>prev.map((v,i)=>i===activeWindowIndex?
-      {...v,symbol:selected.symbol,source:selected.source||selected.exchange,marketType:selected.marketType}:v));
+      {...v,symbol:selected.symbol,source:selected.source||selected.exchange,marketType:selected.marketType,
+        chainId:selected.chainId,pairAddress:selected.pairAddress}:v));
   };
 
   // Toggle Fullscreen
@@ -1354,7 +1386,11 @@ export default function App() {
   };
 
   const handleRestoreSavedChart=(idea:SavedChartIdea)=>{
-    const match=assets.find(a=>a.symbol===idea.symbol&&(a.source||a.exchange)===idea.source);
+    const candidates=assets.filter(a=>a.symbol===idea.symbol&&(a.source||a.exchange)===idea.source&&
+      (!idea.marketType||a.marketType===idea.marketType)&&
+      (!idea.chainId||a.chainId?.toLowerCase()===idea.chainId.toLowerCase())&&
+      (!idea.pairAddress||a.pairAddress?.toLowerCase()===idea.pairAddress.toLowerCase()));
+    const match=candidates.length===1?candidates[0]:undefined;
     if(!match){
       setActiveNotification({id:String(Date.now()),
         message:'Saved chart market is no longer in the current instrument directory.',
@@ -1367,13 +1403,13 @@ export default function App() {
     setDrawingsForMarket(match,structuredClone(idea.drawings));
     setWindowStates(prev=>prev.map((win,i)=>i===activeWindowIndex?
       {...win,symbol:match.symbol,source:match.source||match.exchange,
-        marketType:match.marketType,timeframe:idea.timeframe}:win));
+        marketType:match.marketType,chainId:match.chainId,pairAddress:match.pairAddress,
+        timeframe:idea.timeframe}:win));
     setIndicators(structuredClone(idea.indicators));
     setActiveNotification({id:String(Date.now()),message:'Chart restored from local saved charts.',type:'info'});
   };
   const activePosition =
-    paperPositions.find(p => p.symbol===activeAsset.symbol &&
-      p.exchange===(activeAsset.source||activeAsset.exchange) && p.marketType===activeAsset.marketType) || null;
+    paperPositions.find(p => matchesExactMarket(p,activeAsset)) || null;
   const closeReviewPosition=paperPositions.find(p=>p.id===closeReviewId);
   const closeQuantity=Number(closeReviewQty);
   const closeValid=!!closeReviewPosition && Number.isFinite(closeQuantity) &&
