@@ -10,18 +10,21 @@ export interface PaperSettings {
   leverages:{stocks:number;futures:number;forex:number;crypto:number;others:number};
   commission:PaperCommission;
   futuresOptions:{enabled:boolean;perContract:number};
+  execution:{spreadBps:number;slippageBps:number};
 }
 export const DEFAULT_PAPER_SETTINGS:PaperSettings = {
   currency:'USD',startingBalance:PAPER_STARTING_BALANCE,marginControl:false,
   leverages:{stocks:1,futures:20,forex:50,crypto:10,others:50},
   commission:{enabled:false,mode:'fixed',amount:0},
   futuresOptions:{enabled:false,perContract:0},
+  execution:{spreadBps:0,slippageBps:0},
 };
 export function normalizePaperSettings(raw?:Partial<PaperSettings>):PaperSettings{
   return {...DEFAULT_PAPER_SETTINGS,...raw,
     leverages:{...DEFAULT_PAPER_SETTINGS.leverages,...raw?.leverages},
     commission:{...DEFAULT_PAPER_SETTINGS.commission,...raw?.commission},
-    futuresOptions:{...DEFAULT_PAPER_SETTINGS.futuresOptions,...raw?.futuresOptions}};
+    futuresOptions:{...DEFAULT_PAPER_SETTINGS.futuresOptions,...raw?.futuresOptions},
+    execution:{...DEFAULT_PAPER_SETTINGS.execution,...raw?.execution}};
 }
 export function marketPaperCategory(asset:Asset):keyof PaperSettings['leverages']{
   if (asset.category==='stocks'||asset.category==='funds')return 'stocks';
@@ -48,6 +51,14 @@ export function validatePaperSettings(settings:PaperSettings){
   if(!Number.isFinite(settings.commission.amount)||settings.commission.amount<0)throw new Error('Commission cannot be negative.');
   if(settings.commission.mode==='percent'&&settings.commission.amount>100)throw new Error('Commission percent cannot exceed 100.');
   if(!Number.isFinite(settings.futuresOptions.perContract)||settings.futuresOptions.perContract<0)throw new Error('Per-contract commission cannot be negative.');
+  if(!settings.execution||!Number.isFinite(settings.execution.spreadBps)||!Number.isFinite(settings.execution.slippageBps)||settings.execution.spreadBps<0||settings.execution.slippageBps<0||settings.execution.spreadBps>1000||settings.execution.slippageBps>1000)throw new Error('Modeled spread/slippage must be between 0 and 1000 basis points.');
+}
+/** Opt-in modeled spread and slippage, not observed liquidity or market depth. */
+export function paperExecutionPrice(settings:PaperSettings,rawPrice:number,side:'Long'|'Short',action:'entry'|'exit'):number{
+  const halfSpread=(settings.execution?.spreadBps||0)/2;
+  const slippage=settings.execution?.slippageBps||0;
+  const sign=(side==='Long')===(action==='entry')?1:-1;
+  return rawPrice*(1+sign*(halfSpread+slippage)/10000);
 }
 export interface PaperFill {
   id: string; positionId: string; symbol: string; exchange: string;
@@ -107,19 +118,20 @@ export function placePaperPosition(
   const permitted=accountLeverage(input.settings,asset);
   // Leverage is defined by the account, not by the individual order ticket.
   if (leverage!==permitted)throw new Error('Leverage must match this paper account’s '+permitted+'× '+marketPaperCategory(asset)+' setting.');
-  if (tp !== undefined && (!Number.isFinite(tp) || tp <= 0 || (side==='Long' ? tp <= asset.price : tp >= asset.price)))
+  const fillPrice=paperExecutionPrice(input.settings,asset.price,side,'entry');
+  if (tp !== undefined && (!Number.isFinite(tp) || tp <= 0 || (side==='Long' ? tp <= fillPrice : tp >= fillPrice)))
     throw new Error('Take profit must be above entry for a long or below entry for a short.');
-  if (sl !== undefined && (!Number.isFinite(sl) || sl <= 0 || (side==='Long' ? sl >= asset.price : sl <= asset.price)))
+  if (sl !== undefined && (!Number.isFinite(sl) || sl <= 0 || (side==='Long' ? sl >= fillPrice : sl <= fillPrice)))
     throw new Error('Stop loss must be below entry for a long or above entry for a short.');
   const portfolio = recalculatePaperPortfolio(input);
-  const notional = quantity * asset.price, margin = notional / leverage, entryFee = paperCommission(portfolio.settings,asset,quantity,asset.price);
+  const notional = quantity * fillPrice, margin = notional / leverage, entryFee = paperCommission(portfolio.settings,asset,quantity,fillPrice);
   // Equity must cover both initial margin and opening fees; ignore untrusted cached prices.
   if (margin + entryFee > portfolio.account.availableFunds + 1e-8)
     throw new Error('Insufficient available funds for margin and opening fee.');
   const id = 'paper-'+at+'-'+Math.random().toString(36).slice(2,8);
   const position: PaperPosition = {
     id, symbol: asset.symbol, exchange: asset.source || asset.exchange,
-    side, qty: quantity, leverage, category:asset.category, marketType:asset.marketType, entryPrice: asset.price, currentPrice: asset.price,
+    side, qty: quantity, leverage, category:asset.category, marketType:asset.marketType, entryPrice: fillPrice, currentPrice: asset.price,
     unrealizedPnL: 0, unrealizedPnLPct: 0, tp, sl, openedAt: at, lastMarkedAt: at,
   };
   return recalculatePaperPortfolio({...portfolio,
@@ -128,7 +140,7 @@ export function placePaperPosition(
       realizedPnL: portfolio.account.realizedPnL - entryFee },
     positions: [position,...portfolio.positions],
     fills: [{id:id+'-open',positionId:id, symbol:position.symbol,exchange:position.exchange,
-      side: side === 'Long' ? 'Buy' : 'Sell',quantity,price:asset.price,fee:entryFee,
+      side: side === 'Long' ? 'Buy' : 'Sell',quantity,price:fillPrice,fee:entryFee,
       realizedPnL:-entryFee,timestamp:at,note:`Open (simulated ${executionKind} fill)`},
       ...portfolio.fills],
   });
@@ -138,7 +150,8 @@ export function closePaperPosition(
 ): PaperPortfolio {
   const p = input.positions.find(x=>x.id===id);
   if (!p) return input;
-  const price = marketPrice ?? p.currentPrice;
+  const observedPrice=marketPrice??p.currentPrice;
+  const price=paperExecutionPrice(input.settings,observedPrice,p.side,'exit');
   if (!Number.isFinite(price) || price <= 0) throw new Error('A valid market price is required to close.');
   const qty = quantity === undefined ? p.qty : quantity;
   if (!Number.isFinite(qty) || qty <= 0 || qty > p.qty) throw new Error('Invalid closing quantity.');
@@ -149,7 +162,7 @@ export function closePaperPosition(
     account: {...input.account, balance:input.account.balance+realized-fee,
       realizedPnL:input.account.realizedPnL+realized-fee },
     positions: remaining < 1e-10 ? input.positions.filter(x=>x.id!==id) :
-      input.positions.map(x=>x.id===id?{...x,qty:remaining,currentPrice:price}:x),
+      input.positions.map(x=>x.id===id?{...x,qty:remaining,currentPrice:observedPrice}:x),
     fills:[{id:'close-'+at+'-'+Math.random().toString(36).slice(2,8),
       positionId:id,symbol:p.symbol,exchange:p.exchange,
       side:p.side==='Long'?'Sell':'Buy',quantity:qty,price,fee,realizedPnL:realized-fee,

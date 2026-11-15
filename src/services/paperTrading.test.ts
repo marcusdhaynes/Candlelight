@@ -74,6 +74,13 @@ closeTo(percentPortfolio.fills[0].fee,0.08);
 const percentClosed=closePaperPosition(percentPortfolio,percentPortfolio.positions[0].id,110,undefined,now+1000);
 closeTo(percentClosed.fills[0].fee,0.088);
 const future={...asset,category:'futures' as const,marketType:'futures' as const};
+const assumed=emptyPaperPortfolio(normalizePaperSettings({execution:{spreadBps:10,slippageBps:5}}));
+const assumedOpen=placePaperPosition(assumed,asset,'Long',1,1,undefined,undefined,now);
+closeTo(assumedOpen.positions[0].entryPrice,100.1);
+const assumedClosed=closePaperPosition(assumedOpen,assumedOpen.positions[0].id,105,undefined,now+1);
+closeTo(assumedClosed.fills[0].price,104.895);
+closeTo(assumedClosed.account.balance,10000+104.895-100.1);
+
 const derivative={...asset,category:'crypto' as const,marketType:'swap' as const};
 const derivativeSettings=normalizePaperSettings({marginControl:true,leverages:{
  ...DEFAULT_PAPER_SETTINGS.leverages,crypto:3,futures:17}});
