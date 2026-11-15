@@ -92,3 +92,4 @@ export const CloudSyncPanel:React.FC=()=>{
   </table></div>}
   <p className="text-[#91a4bd]">Every upload checks the expected remote revision. Every restore validates the cloud document and stores an exact backup of current local bytes first. This sign-in is shared Supabase Auth, but documents are isolated to Candlelight's private owner-scoped schema.</p>
  </section>;
+};
