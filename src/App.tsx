@@ -1566,8 +1566,8 @@ export default function App() {
         isPipActive={isPipActive}
         onUndoDrawing={handleUndoDrawing}
         onRedoDrawing={handleRedoDrawing}
-        canUndo={drawings.length > 0}
-        canRedo={drawingHistory.length > 0}
+        canUndo={!!drawingHistoryRef.current[marketIdentity(activeAsset)]?.past.length}
+        canRedo={!!drawingHistoryRef.current[marketIdentity(activeAsset)]?.future.length}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         onSelectQuickTool={(tool) => setActiveTool(tool)}

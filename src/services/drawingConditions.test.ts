@@ -10,5 +10,5 @@ assert.equal(drawingConditionMet(line,'crosses_above',21,13,250,140),false);
 const box={...line,type:'rectangle' as const};
 assert.equal(drawingConditionMet(box,'touches',15,undefined,150,undefined),true);
 assert.equal(drawingConditionMet(box,'touches',25,undefined,150,undefined),false);
-assert.equal(drawingConditionMet({...line,type:'fibonacci'},'crosses_above',16,13,150,140),false);
+assert.equal(drawingConditionMet({...line,type:'fibonacci' as const},'crosses_above',16,13,150,140),false);
 console.log('Geometry-aware drawing threshold and unavailable drawing tests passed.');
