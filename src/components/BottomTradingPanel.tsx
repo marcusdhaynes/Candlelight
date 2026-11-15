@@ -11,6 +11,7 @@ import {isPaperStorageBlocked} from '../services/paperAccounts';
 import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
 import {RiskCenterPanel} from './RiskCenterPanel';
+import {summarizePaperAccounts} from '../services/portfolioAnalytics';
 import {MarketScreenerPanel} from './MarketScreenerPanel';
 import {MarketDataHealthPanel} from './MarketDataHealthPanel';
 import {ReplayBacktestPanel} from './ReplayBacktestPanel';
@@ -68,6 +69,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   const [accountListOpen,setAccountListOpen]=useState(false);
   // undefined = dialog closed; null = new account; string = edit existing account
   const [accountDialog,setAccountDialog]=useState<string|null|undefined>(undefined);
+  const portfolioSummary=summarizePaperAccounts(paperAccounts);
   const activeLeverage=accountLeverage(paperSettings,activeAsset);
   const activeCategory=marketPaperCategory(activeAsset);
   const feeDescription=(()=>{
@@ -296,6 +298,33 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
         <span>Starting capital: {paperSettings.startingBalance.toLocaleString()} {paperSettings.currency}</span><span>Completed closes: {fills.filter(f=>f.note.toLowerCase().includes('close')).length}</span>
         <span>Net realized: {cash(account.realizedPnL)} {paperSettings.currency}</span><span>Open P&L: {cash(account.unrealizedPnL)} {paperSettings.currency}</span>
         <span>Equity: {cash(account.equity)} {paperSettings.currency}</span><span>Available: {cash(account.availableFunds)} {paperSettings.currency}</span>
+        <section className="w-full space-y-2 border-t border-[#333c4d] pt-3">
+          <strong className="text-[#ecf0f7]">All Paper Accounts · Independent Currencies</strong>
+          <p className="text-[#99a9be]">Only accounts with the same currency are combined. No exchange rates or synthetic currency conversions are assumed.</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead><tr className="text-[#aab6ca]">
+                {['Account / Currency','Cash','Equity','Available','Realized','Unrealized','Exposure','At Stops*','Open','Pending','Fees'].map(label=><th key={label} className="px-2 py-1 whitespace-nowrap">{label}</th>)}
+              </tr></thead>
+              <tbody>{portfolioSummary.accounts.map(row=><tr key={row.id} className="border-t border-[#3a4556]">
+                <td className="px-2 py-1 whitespace-nowrap">{row.name} · {row.currency}</td>
+                <td>{cash(row.cash)}</td><td>{cash(row.equity)}</td><td>{cash(row.available)}</td>
+                <td>{cash(row.realized)}</td><td>{cash(row.unrealized)}</td>
+                <td>{cash(row.grossNotional)}</td><td>{cash(row.stopScenarioRisk)}</td>
+                <td>{row.positions}</td><td>{row.pending}</td><td>{cash(row.settledFees)}</td>
+              </tr>)}
+              {portfolioSummary.byCurrency.map(row=><tr key={row.currency} className="border-t border-[#4b5c76] bg-[#222c3b] font-semibold">
+                <td className="px-2 py-1 whitespace-nowrap">Total · {row.currency} ({row.accounts})</td>
+                <td>{cash(row.cash)}</td><td>{cash(row.equity)}</td><td>{cash(row.available)}</td>
+                <td>{cash(row.realized)}</td><td>{cash(row.unrealized)}</td>
+                <td>{cash(row.grossNotional)}</td><td>{cash(row.stopScenarioRisk)}</td>
+                <td>{row.positions}</td><td>{row.pending}</td><td>{cash(row.fees)}</td>
+              </tr>)}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[#9aa9bc]">*Stop-based losses are hypothetical, not guaranteed maximum losses. Accounts with unprotected positions may lose more than shown.</p>
+        </section>
       </div>}
     </div>
     {accountDialog!==undefined&&createPortal(
