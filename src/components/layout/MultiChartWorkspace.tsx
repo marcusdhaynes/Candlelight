@@ -36,6 +36,8 @@ interface MultiChartWorkspaceProps {
   setActiveTool: (tool: DrawingToolType) => void;
   drawings: Drawing[];
   setDrawings: React.Dispatch<React.SetStateAction<Drawing[]>>;
+  drawingsByMarket:Record<string,Drawing[]>;
+  onSetMarketDrawings:(asset:Asset,change:React.SetStateAction<Drawing[]>)=>void;
   isMagnetMode: boolean;
   areDrawingsHidden: boolean;
   currentColor: string;
@@ -168,6 +170,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       setActiveTool,
       drawings,
       setDrawings,
+      drawingsByMarket,
+      onSetMarketDrawings,
       isMagnetMode,
       areDrawingsHidden,
       currentColor,
@@ -571,8 +575,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
               indicators={indicators}
               activeTool={activeTool}
               setActiveTool={setActiveTool}
-              drawings={drawings}
-              setDrawings={setDrawings}
+              drawings={drawingsByMarket[marketIdentity(winAsset)]||[]}
+              setDrawings={change=>onSetMarketDrawings(winAsset,change)}
               isMagnetMode={isMagnetMode}
               areDrawingsHidden={areDrawingsHidden}
               currentColor={currentColor}

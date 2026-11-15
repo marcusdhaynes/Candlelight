@@ -160,13 +160,39 @@ export default function App() {
     return saved || '#2962ff';
   });
 
-  const [drawings, setDrawings] = useState<Drawing[]>(() => {
-    const value = readLocalJson<Drawing[]>('tv_drawings', INITIAL_DRAWINGS);
-    return Array.isArray(value) ? value.filter(d=>d && typeof d.id==='string' &&
-      typeof d.type==='string' && Array.isArray(d.points) && typeof d.color==='string') : INITIAL_DRAWINGS;
+  const [drawingsByMarket,setDrawingsByMarket]=useState<Record<string,Drawing[]>>(()=>{
+    const saved=readLocalJson<Record<string,Drawing[]>|null>('tv_drawings_by_market_v1',null);
+    if(saved&&typeof saved==='object'&&!Array.isArray(saved))return saved;
+    // Only assign old global drawings to the exact market recorded in
+    // the prior version; don't project them across every symbol.
+    const old=readLocalJson<Drawing[]>('tv_drawings',[]);
+    const savedSymbol=localStorage.getItem('tv_active_symbol');
+    const savedVenue=localStorage.getItem('candlelight_active_source');
+    const savedType=localStorage.getItem('candlelight_active_market_type')||'';
+    if(Array.isArray(old)&&old.length&&savedSymbol&&savedVenue)
+      return {[savedSymbol+'|'+savedVenue+'|'+savedType]:old};
+    return {};
   });
+  const drawings=drawingsByMarket[marketIdentity(activeAsset)]||[];
+  const setDrawingsForMarket=useCallback((asset:Asset,change:React.SetStateAction<Drawing[]>)=>{
+    const key=marketIdentity(asset);
+    setDrawingsByMarket(prev=>{
+      const current=prev[key]||[];
+      const next=typeof change==='function'?change(current):change;
+      return {...prev,[key]:next};
+    });
+  },[]);
+  const setDrawings=useCallback<React.Dispatch<React.SetStateAction<Drawing[]>>>(
+    change=>setDrawingsForMarket(activeAsset,change),
+    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,setDrawingsForMarket]);
+  useEffect(()=>{
+    try{localStorage.setItem('tv_drawings_by_market_v1',JSON.stringify(drawingsByMarket));}
+    catch(e){console.warn('Could not save per-market drawings',e);}
+  },[drawingsByMarket]);
   const [drawingHistory, setDrawingHistory] = useState<Drawing[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  useEffect(()=>{setDrawingHistory([]);setHistoryIndex(-1);},
+    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType]);
 
   // State: Indicators
   const [indicators, setIndicators] = useState<IndicatorSettings>(() => {
@@ -751,9 +777,7 @@ export default function App() {
     } catch (error) { console.warn('Unable to persist watchlist', error); }
   }, [watchlists]);
 
-  useEffect(() => {
-    localStorage.setItem('tv_drawings', JSON.stringify(drawings));
-  }, [drawings]);
+  // Drawings are persisted under tv_drawings_by_market_v1 by exact market.
 
   useEffect(() => {
     localStorage.setItem('tv_indicators', JSON.stringify(indicators));
@@ -1421,6 +1445,8 @@ export default function App() {
             setActiveTool={setActiveTool}
             drawings={drawings}
             setDrawings={setDrawings}
+            drawingsByMarket={drawingsByMarket}
+            onSetMarketDrawings={setDrawingsForMarket}
             isMagnetMode={isMagnetMode}
             areDrawingsHidden={areDrawingsHidden}
             currentColor={currentColor}
