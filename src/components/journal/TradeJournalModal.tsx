@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { JournalTrade, JournalTab } from '../../types';
-import { INITIAL_JOURNAL_TRADES } from '../../data/sampleJournalTrades';
 import {
   calculateJournalStats,
   calculateWaveScore,
@@ -64,14 +63,15 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
         console.error('Failed to parse saved journal trades', e);
       }
     }
-    return INITIAL_JOURNAL_TRADES;
+    // A real journal starts empty; examples must be explicitly imported.
+    return [];
   });
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<JournalTrade | null>(null);
   const [isMaximized, setIsMaximized] = useState(true);
-  const [calendarYear, setCalendarYear] = useState(2025);
-  const [calendarMonth, setCalendarMonth] = useState(4);
+  const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 

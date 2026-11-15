@@ -65,6 +65,11 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
 
       {activeTab === 'book' ? (
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {asks.length === 0 || bids.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center p-4 text-center text-[#8b93a4] text-xs">
+              Verified level-2 market depth is unavailable for this venue. No estimated bid/ask ladder or spread is displayed.
+            </div>
+          ) : (<React.Fragment>
           {/* Header Row */}
           <div className="grid grid-cols-3 px-2 py-1 text-[9.5px] font-medium text-[#787b86] border-b border-[#2a2e39]/60">
             <span>Price (USD)</span>
@@ -131,6 +136,7 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
               );
             })}
           </div>
+          </React.Fragment>)}
         </div>
       ) : (
         /* Recent Trades View */

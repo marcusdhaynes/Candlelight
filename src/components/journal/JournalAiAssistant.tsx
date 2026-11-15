@@ -40,67 +40,55 @@ export const JournalAiAssistant: React.FC<JournalAiAssistantProps> = ({
   onToggleMaximize,
   onClose,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm-1',
-      sender: 'ai',
-      text: `Hello! I am your TradeZella AI Journal Coach. I have thoroughly reviewed your ${trades.length} logged trades, your WaveScore (${waveScore.overall}/100), and your current win rate of ${stats.winRate}%.\n\nYour most profitable setup is **REVERSAL** with consistent high efficiency, but trades flagged with **FOMO** and **missing stop loss** account for over 80% of your total drawdowns. What would you like to drill into today?`,
-      time: 'Just now',
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [{
+    id: 'm-1', sender: 'ai',
+    text: trades.length === 0
+      ? 'Your journal has no recorded trades yet. Add or import genuine trades to see calculated insights. This is a local rules-based summary, not a connected AI model.'
+      : `Journal summary from ${trades.length} saved trades: ${stats.closedTrades} closed, ${stats.winRate}% win rate, WaveScore ${waveScore.overall}/100. These calculations are local and are not personalized investment advice.`,
+    time: 'Just now',
+  }]);
   const [input, setInput] = useState('');
 
   const setups = getSetupsBreakdown(trades);
   const mistakes = getMistakesBreakdown(trades);
 
+  // Deterministic, on-device journal calculations. Do not pretend an LLM was
+  // consulted or invent trade-level findings missing from the saved ledger.
   const handleSend = (userText: string) => {
     if (!userText.trim()) return;
-
-    const newMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
-      sender: 'user',
-      text: userText,
-      time: 'Just now',
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
+    setMessages(prev => [...prev, {
+      id: `u-${Date.now()}`, sender: 'user', text: userText, time: 'Just now',
+    }]);
     setInput('');
-
-    // Generate smart context-aware response based on the actual metrics
-    setTimeout(() => {
-      let reply = '';
-      const lower = userText.toLowerCase();
-
-      if (lower.includes('leak') || lower.includes('mistake') || lower.includes('loss')) {
-        const topMistake = mistakes[0];
-        reply = `🔍 **Deep Audit of Trading Leaks:**\n\nYour primary profit leak is **"${topMistake?.name || 'FOMO entries'}"**, which has cost you **$${topMistake?.totalLoss || 561.96}** across ${topMistake?.count || 4} trades.\n\n**Actionable Rule:**\n1. Enforce a hard 15-minute cool-down rule if you feel the urge to chase momentum after 3 consecutive green candles.\n2. Never enter without a predefined Stop Loss resting on your broker order book before hitting Market Buy.`;
-      } else if (lower.includes('wavescore') || lower.includes('score')) {
-        reply = `📈 **Path to WaveScore 90+:**\n- Current Overall: **${waveScore.overall}/100**\n- **Risk Score (${waveScore.risk}/100)**: Increase stop loss attachment rate to 100% of trades.\n- **Exit Score (${waveScore.exit}/100)**: Avoid cutting winners early. Your MFE indicates winners could run an additional 15-20% if trailed with a moving stop.\n- **Stability (${waveScore.stability}/100)**: Cut impulsive revenge trades to achieve a smooth equity curve.`;
-      } else if (lower.includes('setup') || lower.includes('breakout') || lower.includes('reversal')) {
-        const best = setups[0];
-        const second = setups[1];
-        reply = `🎯 **Edge Analysis by Setup:**\n- **Top Setup:** **${best?.name}** with **${best?.winRate}% win rate** and **+$${best?.netReturn}** net return.\n- **Second Best:** **${second?.name}** (${second?.winRate}% win rate).\n\nRecommendation: For the next 20 sessions, allocate 80% of your risk capital exclusively to your top 2 setups and strictly avoid unconfirmed breakout chases.`;
-      } else {
-        reply = `💡 **AI Tactical Feedback:**\nBased on your ledger stats (${stats.winTrades} wins out of ${stats.closedTrades} closed trades):\n\n- Profit Factor: **${stats.profitFactor}**\n- Average Win: **$${stats.avgWin}** vs Average Loss: **$${stats.avgLoss}**\n- Winstreak: **${stats.dayStreak.maxWin} consecutive winning days**\n\nMaintaining strict risk sizing will compound your initial balance with minimal drawdown risk.`;
-      }
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `ai-${Date.now()}`,
-          sender: 'ai',
-          text: reply,
-          time: 'Just now',
-        },
-      ]);
-    }, 600);
+    const lower = userText.toLowerCase();
+    let reply = '';
+    if (trades.length === 0) {
+      reply = 'No real trades are recorded. Add or import trades first; the journal will not manufacture results or performance statistics.';
+    } else if (lower.includes('leak') || lower.includes('mistake') || lower.includes('loss')) {
+      const top = [...mistakes].sort((a,b) => Math.abs(Number(b.totalLoss)||0)-Math.abs(Number(a.totalLoss)||0))[0];
+      reply = top
+        ? `Largest recorded mistake category by absolute loss: ${top.name}. Recorded loss: ${top.totalLoss}; occurrences: ${top.count}. Check the underlying trades before changing your plan.`
+        : 'No mistake categories are tagged in your saved trades. Tag actual mistakes to enable a breakdown.';
+    } else if (lower.includes('wavescore') || lower.includes('score')) {
+      reply = `Calculated WaveScore: ${waveScore.overall}/100. Risk: ${waveScore.risk}/100; Exit: ${waveScore.exit}/100; Stability: ${waveScore.stability}/100. This score summarizes saved journal data and does not predict future returns.`;
+    } else if (lower.includes('setup') || lower.includes('breakout') || lower.includes('reversal')) {
+      const ranked = [...setups].sort((a,b) => Number(b.netReturn)-Number(a.netReturn));
+      reply = ranked.length
+        ? ranked.map(s => `${s.name}: ${s.winRate}% observed win rate; net return ${s.netReturn}`).join('\n')
+        : 'No setup labels exist in saved trades. Add setup tags to compare historical results.';
+    } else {
+      reply = `Saved trades: ${trades.length}. Closed: ${stats.closedTrades}; wins: ${stats.winTrades}; observed win rate: ${stats.winRate}%; profit factor: ${stats.profitFactor}. These are historical journal statistics only, not a promise of compounding, profitability or future performance.`;
+    }
+    setMessages(prev => [...prev, {
+      id: `insight-${Date.now()}`, sender: 'ai', text: reply, time: 'Just now',
+    }]);
   };
 
   const quickPrompts = [
-    'Identify my #1 biggest money leak',
-    'How can I improve my WaveScore from 78 to 90?',
-    'Analyze my win rate on Breakouts vs Reversals',
-    'Generate custom risk rules for tomorrow',
+    'Explain my recorded mistakes',
+    'Explain my WaveScore',
+    'Compare my recorded trade setups',
+    'Summarize my journal performance',
   ];
 
   return (
@@ -114,14 +102,14 @@ export const JournalAiAssistant: React.FC<JournalAiAssistantProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-white tracking-tight">
-                TradeZella & TraderSync AI Coach
+                Journal Insights
               </h2>
               <span className="text-[9px] uppercase font-bold bg-[#2962ff]/20 text-[#2962ff] px-2 py-0.5 rounded">
-                Live Analysis
+                Local Analysis
               </span>
             </div>
             <p className="text-xs text-[#787b86]">
-              Real-time pattern recognition across your entire trading journal history
+              On-device calculations from the trades currently saved in this browser
             </p>
           </div>
         </div>

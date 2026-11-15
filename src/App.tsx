@@ -56,10 +56,14 @@ import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTraili
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
+function readLocalJson<T>(key: string, fallback: T): T {
+  try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw) as T; }
+  catch { return fallback; }
+}
 export default function App() {
   // State: Assets & Selection (Default to PF_ARBUSD / ARBUSD perpetual matching screenshot)
   const [assets, setAssets] = useState<Asset[]>(() => {
-    const saved = localStorage.getItem('tv_assets_v4');
+    const saved = localStorage.getItem('tv_assets') || localStorage.getItem('tv_assets_v4');
     let base = INITIAL_ASSETS;
     if (saved) {
       try {
@@ -106,8 +110,11 @@ export default function App() {
 
   // State: Watchlists
   const [watchlists, setWatchlists] = useState<Watchlist[]>(() => {
-    const saved = localStorage.getItem('tv_watchlists_v4');
-    return saved ? JSON.parse(saved) : INITIAL_WATCHLISTS;
+    // Prior releases wrote tv_watchlists but read tv_watchlists_v4.
+    // Migrate the most recently saved legacy list before retiring that key.
+    const legacy = readLocalJson<Watchlist[] | null>('tv_watchlists', null);
+    const stored = legacy ?? readLocalJson<Watchlist[] | null>('tv_watchlists_v4', null);
+    return Array.isArray(stored) && stored.length > 0 ? stored : INITIAL_WATCHLISTS;
   });
   const [activeWatchlistId, setActiveWatchlistId] = useState<string>(() => {
     const saved = localStorage.getItem('tv_active_watchlist_id');
@@ -133,12 +140,10 @@ export default function App() {
   // State: Drawing Tools & Drawings
   const [activeTool, setActiveTool] = useState<DrawingToolType>('crosshair');
   const [isMagnetMode, setIsMagnetMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('tv_magnet_mode');
-    return saved !== null ? JSON.parse(saved) : false;
+    return readLocalJson<boolean>('tv_magnet_mode', false) === true;
   });
   const [areDrawingsHidden, setAreDrawingsHidden] = useState<boolean>(() => {
-    const saved = localStorage.getItem('tv_drawings_hidden');
-    return saved !== null ? JSON.parse(saved) : false;
+    return readLocalJson<boolean>('tv_drawings_hidden', false) === true;
   });
   const [currentColor, setCurrentColor] = useState<string>(() => {
     const saved = localStorage.getItem('tv_drawing_color');
@@ -146,8 +151,8 @@ export default function App() {
   });
 
   const [drawings, setDrawings] = useState<Drawing[]>(() => {
-    const saved = localStorage.getItem('tv_drawings');
-    return saved ? JSON.parse(saved) : INITIAL_DRAWINGS;
+    const value = readLocalJson<Drawing[]>('tv_drawings', INITIAL_DRAWINGS);
+    return Array.isArray(value) ? value : INITIAL_DRAWINGS;
   });
   const [drawingHistory, setDrawingHistory] = useState<Drawing[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -202,13 +207,13 @@ export default function App() {
 
   // State: Detailed Alerts & Price Alerts (Matching Screenshot with 4 alerts)
   const [detailedAlerts, setDetailedAlerts] = useState<DetailedAlert[]>(() => {
-    const saved = localStorage.getItem('tv_detailed_alerts');
-    return saved ? JSON.parse(saved) : [];
+    const saved = readLocalJson<DetailedAlert[]>('tv_detailed_alerts', []);
+    return Array.isArray(saved) ? saved : [];
   });
 
   const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
-    const saved = localStorage.getItem('tv_alerts');
-    return saved ? JSON.parse(saved) : [];
+    const saved = readLocalJson<PriceAlert[]>('tv_alerts', []);
+    return Array.isArray(saved) ? saved : [];
   });
   const alertsRef = useRef<PriceAlert[]>(alerts);
   const previousAlertPricesRef = useRef<Record<string, number>>({});
@@ -334,12 +339,10 @@ export default function App() {
 
   // State: Scales
   const [isLogScale, setIsLogScale] = useState<boolean>(() => {
-    const saved = localStorage.getItem('tv_is_log_scale');
-    return saved !== null ? JSON.parse(saved) : false;
+    return readLocalJson<boolean>('tv_is_log_scale', false) === true;
   });
   const [isPercentScale, setIsPercentScale] = useState<boolean>(() => {
-    const saved = localStorage.getItem('tv_is_percent_scale');
-    return saved !== null ? JSON.parse(saved) : false;
+    return readLocalJson<boolean>('tv_is_percent_scale', false) === true;
   });
 
   // Chart Ref
@@ -643,12 +646,14 @@ export default function App() {
   };
 
   // Save changes to LocalStorage
-  useEffect(() => {
-    localStorage.setItem('tv_assets', JSON.stringify(assets));
-  }, [assets]);
+  // Do not serialize the entire catalog on every price tick. Custom markets
+  // are separately persisted under candlelight_saved_markets_v1.
 
   useEffect(() => {
-    localStorage.setItem('tv_watchlists', JSON.stringify(watchlists));
+    try {
+      localStorage.setItem('tv_watchlists_v4', JSON.stringify(watchlists));
+      localStorage.removeItem('tv_watchlists');
+    } catch (error) { console.warn('Unable to persist watchlist', error); }
   }, [watchlists]);
 
   useEffect(() => {

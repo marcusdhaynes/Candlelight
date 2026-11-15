@@ -818,7 +818,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = React.memo(({
         {/* Bar Replay Trigger */}
         <button
           className="flex items-center gap-1 px-1.5 py-0.5 text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#1e222d] rounded transition text-[11px]"
-          title="Bar Replay Simulator"
+          title="Historical bar replay is not available yet"
+          aria-label="Bar replay unavailable"
+          disabled
+          aria-disabled="true"
         >
           <RotateCcw className="w-3 h-3" />
           <span>Replay</span>

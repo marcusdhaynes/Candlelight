@@ -38,10 +38,8 @@ export const TechnicalSummaryGauge: React.FC<TechnicalSummaryGaugeProps> = React
     else if (latestMACD < 0) oscSell++;
     else oscNeutral++;
 
-    // Stochastic pseudo check
-    if (latestRSI >= 45 && latestRSI <= 55) oscNeutral++;
-    else if (latestRSI > 55) oscBuy++;
-    else oscSell++;
+    // Do not count a synthetic Stochastic vote derived from RSI.
+    // Add a true Stochastic calculation only when its source is verified.
 
     // Compute Moving Averages
     const sma20 = calculateSMA(candles, 20);
