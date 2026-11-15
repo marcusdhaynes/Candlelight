@@ -54,6 +54,7 @@ import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal
 import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
+import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity} from './services/marketIdentity';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
@@ -348,11 +349,107 @@ export default function App() {
   const [closeReviewId,setCloseReviewId]=useState<string|null>(null);
   const [closeReviewQty,setCloseReviewQty]=useState('');
   const previousRulePrices=useRef<Record<string,number>>({});
+  const applyRuleToPortfolio = useCallback((order:ConditionalOrder,base:PaperPortfolio,market:Asset):PaperPortfolio => {
+    if(!ruleMatchesMarket(order,market)||!ruleCanActivate(order)||!isFreshPaperQuote(market))
+      throw new Error('Conditional order needs a fresh quote from the selected market.');
+    let next:PaperPortfolio=base;
+        const side=order.action==='enter_short'?'Short':'Long';
+        const spec=order.execution;
+        const qtyFor=(kind:'market'|'limit',price:number)=>{
+          if(spec.sizeUnit==='percent')return estimatePaperQty(next,market,spec.size,price);
+          if(spec.sizeUnit==='usd')return spec.size/price;
+          return spec.size;
+        };
+        const match=next.positions.find(p=>p.symbol===order.symbol
+          && p.exchange===(market.source||market.exchange)&&p.marketType===market.marketType);
+        if(order.action==='enter_long'||order.action==='enter_short'){
+          const kind=spec.orderType==='limit'?'limit':'market';
+          const price=kind==='limit'?(spec.limitPrice||0):market.price;
+          const tp=spec.tpPrice||(spec.tpPercent?
+            price*(1+(side==='Long'?1:-1)*spec.tpPercent/100):undefined);
+          const sl=spec.slPrice||(spec.slPercent?
+            price*(1-(side==='Long'?1:-1)*spec.slPercent/100):undefined);
+          next=submitPaperOrder(next,market,{side,kind,qty:qtyFor(kind,price),
+            price:kind==='limit'?price:undefined,tp,sl,timeInForce:'GTC'});
+        }else if(order.action==='increase_position'){
+          if(!match)throw new Error('No position to increase.');
+          next=submitPaperOrder(next,market,{side:match.side,kind:'market',
+            qty:qtyFor('market',market.price)});
+        }else if(order.action==='exit_long'||order.action==='exit_short'){
+          const expected=order.action==='exit_long'?'Long':'Short';
+          if(!match||match.side!==expected)throw new Error('No matching position to close.');
+          next=withOrderReservations(closePaperPosition(next,match.id,market.price));
+        }else if(order.action==='tp'){
+          if(!match)throw new Error('No position for take profit.');
+          next=withOrderReservations(closePaperPosition(next,match.id,market.price));
+        }else if(order.action==='reduce_position'){
+          if(!match)throw new Error('No position to reduce.');
+          const percent=Number(spec.reducePercent)||50;
+          if(percent<=0||percent>100)throw new Error('Invalid reduction percentage.');
+          next=withOrderReservations(closePaperPosition(next,match.id,market.price,match.qty*percent/100));
+        }else if(order.action==='sl_set'){
+          if(!match)throw new Error('No position to protect.');
+          const value=spec.slPrice||(spec.slPercent?
+            match.entryPrice*(1-(match.side==='Long'?1:-1)*spec.slPercent/100):undefined);
+          if(!value)throw new Error('Choose a valid stop-loss price.');
+          if(match.side==='Long'?value>=market.price:value<=market.price)
+            throw new Error('Stop loss must be protective relative to the latest quote.');
+          next=updatePaperStops(next,match.id,match.tp,value);
+        }else if(order.action==='sl_trailing'){
+          if(!match)throw new Error('No position for trailing stop.');
+          next=enableTrailingPaperStop(next,match.id,Number(spec.trailingPercent));
+        }else if(order.action==='cancel_all'){
+          next=withOrderReservations({...next,pendingOrders:[]});
+        }else{
+          throw new Error('Unsupported paper order action.');
+        }
+    return next;
+  },[]);
+
+  const executeObservedTick=useCallback((market:Asset,at:number,events:string[]=[])=>{
+    if(!isFreshPaperQuote(market,at))return;
+    const key=marketIdentity(market),previous=previousRulePrices.current[key];
+    previousRulePrices.current[key]=market.price;
+    const eventIds=new Set(events);
+    setPaperAccounts(state=>{
+      let changed=false;
+      const accounts=state.accounts.map(record=>{
+        let portfolio=evaluatePaperOrders(record.portfolio,market,at);
+        let orders=record.orders;
+        for(let i=0;i<record.orders.length;i++){
+          const order=orders[i];
+          if(order.status!=='active'||!ruleCanActivate(order)||!ruleMatchesMarket(order,market))continue;
+          const met=ruleConditionsMet(order,market,previous,portfolio,eventIds);
+          // Re-arm WHENEVER only after a false observation. Alert dependencies
+          // require an actual new event, never a persisted "triggered" flag.
+          if(order.conditionLogic==='WHENEVER' && Boolean(order.lastConditionSatisfied)!==met){
+            if(orders===record.orders)orders=[...orders];
+            orders[i]={...order,lastConditionSatisfied:met};
+          }
+          if(!ruleEligibleOnTick(order,met,at))continue;
+          try{
+            portfolio=applyRuleToPortfolio(order,portfolio,market);
+            if(orders===record.orders)orders=[...orders];
+            orders[i]={...order,triggerCount:order.triggerCount+1,lastTriggeredAt:at,
+              lastConditionSatisfied:true,status:order.conditionLogic==='WHENEVER'?'active':'triggered'};
+          }catch(error){
+            console.warn('Paper conditional rule could not execute',order.id,error);
+          }
+        }
+        if(portfolio===record.portfolio&&orders===record.orders)return record;
+        changed=true;return {...record,portfolio,orders};
+      });
+      return changed?{...state,accounts}:state;
+    });
+  },[applyRuleToPortfolio]);
+
   // Held paper positions and pending orders need real, venue-scoped stream
   // updates; REST snapshots must never fill a pending order or protective stop.
   const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(record=>[
     ...record.portfolio.positions.map(p=>[p.symbol,p.exchange,p.marketType||''].join('|')),
     ...(record.portfolio.pendingOrders||[]).map(o=>[o.symbol,o.exchange,o.marketType||''].join('|')),
+    ...record.orders.filter(o=>o.status==='active'&&ruleCanActivate(o))
+      .map(o=>[o.symbol,o.exchange,o.marketType||''].join('|')),
   ]))].sort().join('~');
   useEffect(()=>{
     const activeKey=marketIdentity(activeAsset);
@@ -366,22 +463,14 @@ export default function App() {
         onPriceUpdate:(price,_change,_percent,origin)=>{
           if(stopped||origin!=='stream'||!Number.isFinite(price)||price<=0)return;
           const at=Date.now(),quote:Asset={...market,price,quoteStatus:'live',quoteUpdatedAt:at};
-          setPaperAccounts(prev=>{
-            let changed=false;
-            const accounts=prev.accounts.map(record=>{
-              const portfolio=evaluatePaperOrders(record.portfolio,quote,at);
-              if(portfolio===record.portfolio)return record;
-              changed=true;
-              return {...record,portfolio};
-            });
-            return changed?{...prev,accounts}:prev;
-          });
+          const hits=processPriceAlertTick(market,price,at);
+          executeObservedTick(quote,at,hits);
         },
         onCandleTick:()=>{},onOrderBook:()=>{},onTrade:()=>{},onStatusChange:()=>{},
       }));
     }
     return ()=>{stopped=true;unsubs.forEach(unsub=>unsub());};
-  },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType]);
+  },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,executeObservedTick,processPriceAlertTick]);
   useEffect(() => {
     const expire = () => setPaperAccounts(prev => {
       let changed = false;
@@ -919,7 +1008,8 @@ export default function App() {
 
         const now = Date.now();
         // Only verified venue ticks may trigger the price-alert evaluator.
-        if(origin==='stream'||activeAsset.pairAddress)processPriceAlertTick(activeAsset,newPrice,now);
+        const alertEvents=origin==='stream'||activeAsset.pairAddress?
+          processPriceAlertTick(activeAsset,newPrice,now):[];
         const renderNow=origin!=='stream'||now-lastPriceRenderRef.current>=120;
         if(renderNow)lastPriceRenderRef.current=now;
         if(renderNow)setActiveAsset((prev) => {
@@ -954,16 +1044,7 @@ export default function App() {
 
         if(origin==='stream'){
           const quote:Asset={...activeAsset,price:newPrice,quoteStatus:'live',quoteUpdatedAt:now};
-          setPaperAccounts(prev=>{
-            let changed=false;
-            const accounts=prev.accounts.map(record=>{
-              const portfolio=evaluatePaperOrders(record.portfolio,quote,now);
-              if(portfolio===record.portfolio)return record;
-              changed=true;
-              return {...record,portfolio};
-            });
-            return changed?{...prev,accounts}:prev;
-          });
+          executeObservedTick(quote,now,alertEvents);
         }
         // Throttle secondary UI updates to 150ms to keep render cycles smooth and light
         if (now - lastSecondarySyncRef.current > 150) {
@@ -1014,7 +1095,7 @@ export default function App() {
       isCancelled = true;
       unsubscribe();
     };
-  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe, processPriceAlertTick]);
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe, processPriceAlertTick,executeObservedTick]);
 
   // All new paper trades must pass through the validated right-side order ticket.
   const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
@@ -1116,67 +1197,10 @@ export default function App() {
 
   // Pure execution permits multiple triggered rules to apply sequentially to
   // one current portfolio without replacing earlier fills in the same tick.
-  const applyRuleToPortfolio = useCallback((order:ConditionalOrder,base:PaperPortfolio):PaperPortfolio => {
-    if(!ruleMatchesMarket(order,activeAsset)||!ruleCanActivate(order)||!isFreshPaperQuote(activeAsset))
-      throw new Error('Conditional order needs a fresh quote from the selected market.');
-    let next:PaperPortfolio=base;
-        const side=order.action==='enter_short'?'Short':'Long';
-        const spec=order.execution;
-        const qtyFor=(kind:'market'|'limit',price:number)=>{
-          if(spec.sizeUnit==='percent')return estimatePaperQty(next,activeAsset,spec.size,price);
-          if(spec.sizeUnit==='usd')return spec.size/price;
-          return spec.size;
-        };
-        const match=next.positions.find(p=>p.symbol===order.symbol
-          && p.exchange===(activeAsset.source||activeAsset.exchange)&&p.marketType===activeAsset.marketType);
-        if(order.action==='enter_long'||order.action==='enter_short'){
-          const kind=spec.orderType==='limit'?'limit':'market';
-          const price=kind==='limit'?(spec.limitPrice||0):activeAsset.price;
-          const tp=spec.tpPrice||(spec.tpPercent?
-            price*(1+(side==='Long'?1:-1)*spec.tpPercent/100):undefined);
-          const sl=spec.slPrice||(spec.slPercent?
-            price*(1-(side==='Long'?1:-1)*spec.slPercent/100):undefined);
-          next=submitPaperOrder(next,activeAsset,{side,kind,qty:qtyFor(kind,price),
-            price:kind==='limit'?price:undefined,tp,sl,timeInForce:'GTC'});
-        }else if(order.action==='increase_position'){
-          if(!match)throw new Error('No position to increase.');
-          next=submitPaperOrder(next,activeAsset,{side:match.side,kind:'market',
-            qty:qtyFor('market',activeAsset.price)});
-        }else if(order.action==='exit_long'||order.action==='exit_short'){
-          const expected=order.action==='exit_long'?'Long':'Short';
-          if(!match||match.side!==expected)throw new Error('No matching position to close.');
-          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price));
-        }else if(order.action==='tp'){
-          if(!match)throw new Error('No position for take profit.');
-          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price));
-        }else if(order.action==='reduce_position'){
-          if(!match)throw new Error('No position to reduce.');
-          const percent=Number(spec.reducePercent)||50;
-          if(percent<=0||percent>100)throw new Error('Invalid reduction percentage.');
-          next=withOrderReservations(closePaperPosition(next,match.id,activeAsset.price,match.qty*percent/100));
-        }else if(order.action==='sl_set'){
-          if(!match)throw new Error('No position to protect.');
-          const value=spec.slPrice||(spec.slPercent?
-            match.entryPrice*(1-(match.side==='Long'?1:-1)*spec.slPercent/100):undefined);
-          if(!value)throw new Error('Choose a valid stop-loss price.');
-          if(match.side==='Long'?value>=activeAsset.price:value<=activeAsset.price)
-            throw new Error('Stop loss must be protective relative to the latest quote.');
-          next=updatePaperStops(next,match.id,match.tp,value);
-        }else if(order.action==='sl_trailing'){
-          if(!match)throw new Error('No position for trailing stop.');
-          next=enableTrailingPaperStop(next,match.id,Number(spec.trailingPercent));
-        }else if(order.action==='cancel_all'){
-          next=withOrderReservations({...next,pendingOrders:[]});
-        }else{
-          throw new Error('Unsupported paper order action.');
-        }
-    return next;
-  },[activeAsset]);
-
   const handleTestTriggerConditionalOrder = useCallback((order:ConditionalOrder) => {
     // Explicit dry-run: never write the projected portfolio, fills or trigger count.
     try {
-      const projected=applyRuleToPortfolio(order,paperPortfolio);
+      const projected=applyRuleToPortfolio(order,paperPortfolio,activeAsset);
       const delta=projected.account.balance-paperPortfolio.account.balance;
       const fills=projected.fills.length-paperPortfolio.fills.length;
       setActiveNotification({id:String(Date.now()),type:'info',
@@ -1184,100 +1208,6 @@ export default function App() {
       setPaperError('');
     }catch(e){setPaperError(e instanceof Error?e.message:'Simulation unavailable');}
   },[applyRuleToPortfolio,paperPortfolio]);
-
-  // Automated Conditional Orders Evaluation Engine on Price Ticks
-  useEffect(() => {
-    if (conditionalOrders.length === 0 || !isFreshPaperQuote(activeAsset)) return;
-    const curPrice = activeAsset.price;
-    const ruleMarket=assetIdentity(activeAsset);
-    const priorPrice=previousRulePrices.current[ruleMarket];
-    previousRulePrices.current[ruleMarket]=curPrice;
-    const activeRules = conditionalOrders.filter(
-      (o) => o.status === 'active' && ruleMatchesMarket(o,activeAsset) && ruleCanActivate(o) &&
-        o.triggerCount < (o.maxTriggers||9999)
-    );
-
-    const triggeredRules:ConditionalOrder[]=[];
-    activeRules.forEach((order) => {
-      const results = order.conditions.map((cond) => {
-        if (cond.dependencyType === 'price' || cond.dependencyType === 'drawing') {
-          const thresh = cond.thresholdValue;
-          if (thresh == null) return false;
-          if (cond.operator === 'crosses_above') {
-            return priorPrice!==undefined&&priorPrice<thresh&&curPrice>=thresh;
-          }
-          if (cond.operator === 'crosses_below') {
-            return priorPrice!==undefined&&priorPrice>thresh&&curPrice<=thresh;
-          }
-          if (cond.operator === 'greater_than') return curPrice>thresh;
-          if (cond.operator === 'less_than') return curPrice<thresh;
-          if (cond.operator === 'touches') {
-            return thresh>0&&Math.abs(curPrice-thresh)/thresh<0.003;
-          }
-        }
-        if (cond.dependencyType === 'position') {
-          const pos = paperPositions.find((p) => p.symbol === activeAsset.symbol &&
-            p.exchange===(activeAsset.source||activeAsset.exchange)&&p.marketType===activeAsset.marketType);
-          if (!pos) return false;
-          if (cond.operator === 'pnl_above_percent') {
-            return pos.unrealizedPnLPct >= (cond.thresholdValue || 0);
-          }
-          if (cond.operator === 'pnl_below_percent') {
-            return pos.unrealizedPnLPct <= -Math.abs(cond.thresholdValue ?? 0);
-          }
-        }
-        if (cond.dependencyType === 'alert') {
-          const priceAlert = alertsRef.current.find(a=>a.id===cond.dependencyId &&
-            a.triggered && a.symbol===activeAsset.symbol &&
-            a.exchange===(activeAsset.source||activeAsset.exchange));
-          if(priceAlert)return true;
-          const alt = detailedAlerts.find((a) => a.id === cond.dependencyId);
-          if (alt && alt.status === 'Triggered') return true;
-        }
-        return false;
-      });
-
-      let triggered = false;
-      if (order.conditionLogic === 'IF' || order.conditionLogic === 'WHENEVER') {
-        triggered = results[0] === true;
-      } else if (order.conditionLogic === 'IF (AND)') {
-        triggered = results.length > 0 && results.every(Boolean);
-      } else if (order.conditionLogic === 'IF (OR)') {
-        triggered = results.some(Boolean);
-      }
-
-      if (triggered) {
-        const last = order.lastTriggeredAt || 0;
-        // Don't retrigger within 20s for WHENEVER
-        if (Date.now() - last > 20000) {
-          triggeredRules.push(order);
-        }
-      }
-    });
-    if (!triggeredRules.length) return;
-    // Dry-run against the current snapshot to surface validation errors.
-    let simulated=paperPortfolio;
-    const approved:ConditionalOrder[]=[];
-    for (const rule of triggeredRules) {
-      try {simulated=applyRuleToPortfolio(rule,simulated);approved.push(rule);}
-      catch(e){setPaperError(e instanceof Error?e.message:'Conditional order rejected');}
-    }
-    if (!approved.length)return;
-    setPaperAccounts(prev => updateActivePaperAccount(prev,record=>{
-      let portfolio=record.portfolio;
-      const executed=new Set<string>();
-      for(const rule of approved){
-        try {portfolio=applyRuleToPortfolio(rule,portfolio);executed.add(rule.id);}
-        catch { /* Account changed since this tick; keep its existing portfolio. */ }
-      }
-      if(!executed.size)return record;
-      const at=Date.now();
-      return {...record,portfolio,orders:record.orders.map(o=>executed.has(o.id)?{
-        ...o,triggerCount:o.triggerCount+1,lastTriggeredAt:at,
-        status:o.conditionLogic==='WHENEVER'?'active' as const:'triggered' as const,
-      }:o)};
-    }));
-  }, [activeAsset.price, activeAsset.symbol, conditionalOrders, detailedAlerts, paperPositions, paperPortfolio, applyRuleToPortfolio]);
 
   // Toggle Alert Status
   const handleToggleAlertStatus = (id: string) => {
