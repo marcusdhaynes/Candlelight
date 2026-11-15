@@ -52,6 +52,7 @@ import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
+import WebBuildBanner from './updates/WebBuildBanner';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
@@ -1302,6 +1303,7 @@ export default function App() {
       id="tradingview-app-root"
       className="flex flex-col h-screen w-screen overflow-hidden bg-[#131722] text-[#d1d4dc] font-sans antialiased"
     >
+      <WebBuildBanner />
       {/* Keep the trading workspace full-size. Data/quote availability is shown at the
           actual quote and order-entry controls; do not fill the header with demo copy. */}
       {/* Top Navbar */}

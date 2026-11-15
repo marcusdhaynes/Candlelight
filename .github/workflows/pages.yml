@@ -25,6 +25,9 @@ jobs:
       - run: pnpm run build
         env:
           GITHUB_PAGES: 'true'
+          VITE_BUILD_SHA: ${{ github.sha }}
+      - name: Stamp published commit into Pages manifest
+        run: printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/version.json
       - name: Install browser test dependencies
         run: npm install --prefix tests/e2e --no-package-lock --ignore-scripts
       - name: Exercise workspace controls in Chromium

@@ -74,6 +74,9 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
           </button>
         </div>
 
+        <p role="note" className="px-4 py-2 text-[11px] text-[#a4abba] border-b border-[#2a2e39]">
+          Alerts require Candlelight to remain open. They are not server-side or broker-side orders.
+        </p>
         {/* Create Alert Form */}
         <form onSubmit={handleCreateAlert} className="p-4 border-b border-[#2a2e39] bg-[#131722]/50 space-y-3">
           <div className="text-xs text-[#787b86]">

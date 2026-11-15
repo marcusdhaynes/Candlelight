@@ -1,5 +1,6 @@
 import type { Asset, OHLCV, Timeframe, TradeItem } from '../types';
 import { marketFetch } from './marketApi';
+import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
 
 export type PublicCallbacks = {
   onPriceUpdate: (price: number, change?: number, changePct?: number) => void;
@@ -25,20 +26,36 @@ const delaySeconds: Record<string, number> = { '1s': 1, '5s': 5, '15s': 15, '30s
   '1m': 60, '3m': 180, '5m': 300, '15m': 900, '30m': 1800, '45m': 2700,
   '1h': 3600, '2h': 7200, '3h': 10800, '4h': 14400, '1D': 86400, '1W': 604800,
   '1M': 2592000, '3M': 7776000, '12M': 31536000 };
-const binanceBar: Record<string, string> = { '1s': '1s', '1m': '1m', '3m': '3m', '5m': '5m',
-  '15m': '15m', '30m': '30m', '45m': '15m', '1h': '1h', '2h': '2h', '3h': '1h',
-  '4h': '4h', '1D': '1d', '1W': '1w', '1M': '1M' };
-const coinbaseBar: Record<string, number> = { '1m': 60, '3m': 300, '5m': 300,
-  '15m': 900, '30m': 900, '1h': 3600, '2h': 3600, '4h': 21600,
-  '1D': 86400, '1W': 86400 };
-const okxBar: Record<string, string> = { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m',
-  '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H', '1D': '1D', '1W': '1W', '1M': '1M' };
-const bybitBar: Record<string, string> = { '1m': '1', '3m': '3', '5m': '5', '15m': '15',
-  '30m': '30', '1h': '60', '2h': '120', '4h': '240', '1D': 'D', '1W': 'W', '1M': 'M' };
-const krakenBar: Record<string, number> = { '1m': 1, '3m': 5, '5m': 5, '15m': 15,
-  '30m': 30, '1h': 60, '2h': 120, '4h': 240, '1D': 1440, '1W': 10080 };
-const krakenFuturesBar: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m',
-  '30m': '30m', '1h': '1h', '4h': '4h', '1D': '1d', '1W': '1w' };
+const binanceBar: Record<string, string> = {
+  '1s':'1s','5s':'1s','15s':'1s','30s':'1s','1m':'1m','3m':'3m','5m':'5m',
+  '15m':'15m','30m':'30m','45m':'15m','1h':'1h','2h':'1h','3h':'1h',
+  '4h':'4h','1D':'1d','1W':'1w','1M':'1M','3M':'1M','12M':'1M',
+};
+const coinbaseBar: Record<string, number> = {
+  '1m':60,'3m':60,'5m':300,'15m':900,'30m':900,'45m':900,
+  '1h':3600,'2h':3600,'3h':3600,'4h':3600,
+  '1D':86400,'1W':86400,'1M':86400,'3M':86400,
+};
+const okxBar: Record<string, string> = {
+  '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','45m':'15m',
+  '1h':'1H','2h':'2H','3h':'1H','4h':'4H',
+  '1D':'1D','1W':'1W','1M':'1M','3M':'1M','12M':'1M',
+};
+const bybitBar: Record<string, string> = {
+  '1m':'1','3m':'3','5m':'5','15m':'15','30m':'30','45m':'15',
+  '1h':'60','2h':'120','3h':'60','4h':'240','1D':'D','1W':'W',
+  '1M':'M','3M':'M','12M':'M',
+};
+const krakenBar: Record<string, number> = {
+  '1m':1,'3m':1,'5m':5,'15m':15,'30m':30,'45m':15,
+  '1h':60,'2h':60,'3h':60,'4h':240,
+  '1D':1440,'1W':10080,'1M':21600,'3M':21600,'12M':21600,
+};
+const krakenFuturesBar: Record<string, string> = {
+  '1m':'1m','3m':'1m','5m':'5m','15m':'15m','30m':'30m','45m':'15m',
+  '1h':'1h','2h':'1h','3h':'1h','4h':'4h',
+  '1D':'1d','1W':'1w','1M':'1d','3M':'1d','12M':'1d',
+};
 const api = async (url: string) => {
   const r = await marketFetch(url, { signal: AbortSignal.timeout(9000) });
   if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -148,26 +165,38 @@ const cleanCandles = (candles: OHLCV[]) =>
 /** Market-specific historical candles. Never synthesize a derivative from a spot chart. */
 export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promise<OHLCV[]> {
   const source = sourceOf(a), s = marketOf(a);
+  const finish = (bars:OHLCV[]) => resampleVerifiedCandles(cleanCandles(bars),timeframe);
+  // Seconds are only available from venues with an actual 1-second historical feed.
+  if (['1s','5s','15s','30s'].includes(timeframe) &&
+      source!=='binance' && source!=='binance.us')return [];
+  // The public Coinbase/DEX APIs limit the history returned per request.
+  // Do not mislabel a partial 300-day history as a complete 12-month bar.
+  if(timeframe==='12M'&&(source==='coinbase'||a.pairAddress))return [];
   try {
     if (a.pairAddress && a.chainId) {
       const chains: Record<string,string> = { ethereum: 'eth', bsc: 'bsc', solana: 'solana',
         base: 'base', polygon: 'polygon_pos', arbitrum: 'arbitrum', avalanche: 'avax',
         optimism: 'optimism', sui: 'sui-network', unichain: 'unichain' };
       const chain = chains[a.chainId.toLowerCase()] || a.chainId;
-      const interval = ['1m','3m','5m','15m','30m'].includes(timeframe) ? 'minute' :
+      const interval = ['1m','3m','5m','15m','30m','45m'].includes(timeframe) ? 'minute' :
         ['1D','1W','1M'].includes(timeframe) ? 'day' : 'hour';
-      const aggregate = interval === 'minute' ? ({'1m':1,'3m':1,'5m':5,'15m':15,'30m':15} as Record<string,number>)[timeframe] :
+      const aggregate = interval === 'minute' ? ({'1m':1,'3m':1,'5m':5,'15m':15,'30m':15,'45m':15} as Record<string,number>)[timeframe] :
         interval === 'day' ? 1 : ['4h'].includes(timeframe) ? 4 : 1;
       const data = await api('https://api.geckoterminal.com/api/v2/networks/' +
         encodeURIComponent(chain) + '/pools/' + encodeURIComponent(a.pairAddress) +
         '/ohlcv/' + interval + '?aggregate=' + aggregate + '&limit=300&currency=usd');
-      return cleanCandles((data.data?.attributes?.ohlcv_list || []).map((k: any) => ({
+      return finish((data.data?.attributes?.ohlcv_list || []).map((k: any) => ({
         time: Number(k[0]), open: Number(k[1]), high: Number(k[2]),
         low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
     }
     if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol) {
-      const interval = timeframe === '1D' ? '1d' : timeframe === '1W' ? '1w' :
-        ['1m','3m','5m','15m','30m','1h','2h','4h','1M'].includes(timeframe) ? timeframe : '1h';
+      const hyperliquidBars:Record<string,string>={
+        '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m',
+        '45m':'15m','1h':'1h','2h':'2h','3h':'1h','4h':'4h',
+        '1D':'1d','1W':'1w','1M':'1M','3M':'1M','12M':'1M',
+      };
+      const interval=hyperliquidBars[timeframe];
+      if(!interval)return [];
       const endTime = Date.now(), startTime = endTime - Math.min(5000,300) * (delaySeconds[timeframe] || 3600) * 1000;
       const res = await fetch('https://api.hyperliquid.xyz/info', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,49 +204,61 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         signal: AbortSignal.timeout(9000) });
       if (!res.ok) return [];
       const data = await res.json();
-      return cleanCandles((Array.isArray(data) ? data : []).map((k:any) => ({
+      return finish((Array.isArray(data) ? data : []).map((k:any) => ({
         time: Math.floor(Number(k.t)/1000), open: Number(k.o), high: Number(k.h),
         low: Number(k.l), close: Number(k.c), volume: Number(k.v) || 0 })));
     }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
+        const resolution=krakenFuturesBar[timeframe];
+        if(!resolution)return [];
         const data = await api('/api/kraken/futures-chart?symbol=' + encodeURIComponent(futureSymbol(s)) +
-          '&resolution=' + (krakenFuturesBar[timeframe] || '1h'));
-        return cleanCandles((data.candles || []).map((c: any) => ({
+          '&resolution=' + resolution);
+        return finish((data.candles || []).map((c: any) => ({
           time: Number(c.time), open: Number(c.open), high: Number(c.high),
           low: Number(c.low), close: Number(c.close), volume: Number(c.volume) || 0 })));
       }
-      const data = await api('/api/kraken/ohlc?pair=' + encodeURIComponent(s) + '&interval=' + (krakenBar[timeframe] || 60));
-      return cleanCandles(data.candles || []);
+      const interval=krakenBar[timeframe];
+      if(!interval)return [];
+      const data = await api('/api/kraken/ohlc?pair=' + encodeURIComponent(s) + '&interval=' + interval);
+      return finish(data.candles || []);
     }
     if (source === 'coinbase') {
       const id = coinbaseSymbol(s); if (!id) return [];
+      const granularity=coinbaseBar[timeframe];
+      if(!granularity)return [];
       const raw = await api('https://api.exchange.coinbase.com/products/' + encodeURIComponent(id) +
-        '/candles?granularity=' + (coinbaseBar[timeframe] || 3600));
-      return cleanCandles((Array.isArray(raw) ? raw : []).map((k: any) => ({
+        '/candles?granularity=' + granularity);
+      return finish((Array.isArray(raw) ? raw : []).map((k: any) => ({
         time: Number(k[0]), open: Number(k[3]), high: Number(k[2]), low: Number(k[1]),
         close: Number(k[4]), volume: Number(k[5]) || 0 })));
     }
     if (source === 'binance' || source === 'binance.us') {
       const host = source === 'binance' ? 'https://data-api.binance.vision' : 'https://api.binance.us';
+      const interval=binanceBar[timeframe];
+      if(!interval)return [];
       const raw = await api(host + '/api/v3/klines?symbol=' + encodeURIComponent(s) +
-        '&interval=' + (binanceBar[timeframe] || '1h') + '&limit=1000');
-      return cleanCandles((Array.isArray(raw) ? raw : []).map((k: any) => ({
+        '&interval=' + interval + '&limit=1000');
+      return finish((Array.isArray(raw) ? raw : []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
         low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
     }
     if (source === 'okx') {
+      const interval=okxBar[timeframe];
+      if(!interval)return [];
       const data = await api('https://www.okx.com/api/v5/market/candles?instId=' +
-        encodeURIComponent(s) + '&bar=' + (okxBar[timeframe] || '1H') + '&limit=300');
-      return cleanCandles((data.data || []).map((k: any) => ({
+        encodeURIComponent(s) + '&bar=' + interval + '&limit=300');
+      return finish((data.data || []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
         low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
     }
     if (source === 'bybit') {
       const category = a.marketType === 'spot' ? 'spot' : 'linear';
+      const interval=bybitBar[timeframe];
+      if(!interval)return [];
       const data = await api('https://api.bybit.com/v5/market/kline?category=' + category +
-        '&symbol=' + encodeURIComponent(s) + '&interval=' + (bybitBar[timeframe] || '60') + '&limit=1000');
-      return cleanCandles((data.result?.list || []).map((k: any) => ({
+        '&symbol=' + encodeURIComponent(s) + '&interval=' + interval + '&limit=1000');
+      return finish((data.result?.list || []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
         low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
     }
@@ -226,7 +267,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
 }
 /** Direct public WebSockets, backed by REST polling if browser/network blocks WS. */
 export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCallbacks): () => void {
-  const source = sourceOf(a), symbol = marketOf(a), step = delaySeconds[timeframe] || 60;
+  const source = sourceOf(a), symbol = marketOf(a);
   if (a.pairAddress && a.chainId) {
     let stopped = false;
     cb.onStatusChange({ connected: false, provider: 'DEX indexed snapshot · non-streaming', latencyMs: 0 });
@@ -257,7 +298,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true) => {
     if (stopped || !Number.isFinite(price) || price <= 0) return;
     lastTick = Date.now();
-    const bucket = Math.floor(lastTick/1000/step)*step;
+    const bucket = candleBucketStart(lastTick/1000,timeframe);
     if (!candle || bucket > candle.time) {
       if (candle) cb.onCandleTick({ ...candle }, true);
       candle = { time: bucket, open: price, high: price, low: price, close: price, volume: Math.max(size,0) };

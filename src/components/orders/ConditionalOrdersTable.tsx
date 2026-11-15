@@ -123,6 +123,9 @@ export const ConditionalOrdersTable: React.FC<ConditionalOrdersTableProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-[#131722] text-xs">
+      <p role="note" className="px-3 py-1 text-[10px] text-[#a4abba] border-b border-[#2a2e39]">
+        Simulated conditional actions only run while this browser page is open. No real broker execution or unattended protection is provided.
+      </p>
       {/* Table Toolbar */}
       <div className="h-8 px-3 border-b border-[#2a2e39] flex items-center justify-between bg-[#131722]">
         <div className="flex items-center gap-2">

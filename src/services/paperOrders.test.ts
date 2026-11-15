@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import type {Asset} from '../types';
 import {emptyPaperPortfolio} from './paperTrading';
 import {
-  submitPaperOrder,cancelPaperOrder,evaluatePaperOrders,pendingFor,withOrderReservations,
+  submitPaperOrder,cancelPaperOrder,evaluatePaperOrders,expirePaperOrders,pendingFor,withOrderReservations,
   estimatePaperQty,paperRiskSizedQty,exitPriceFromValue,exitValueFromPrice,
 } from './paperOrders';
 const now=1_700_000_000_000;
@@ -29,6 +29,10 @@ const cancelled=cancelPaperOrder(limit,pendingFor(limit)[0].id);
 assert.equal(pendingFor(cancelled).length,0);approx(cancelled.account.ordersMargin,0);
 const day=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:95,timeInForce:'Day'},now);
 assert.equal(evaluatePaperOrders(day,fresh(100,now+86400001),now+86400001).pendingOrders?.length,0);
+const expiredOffline=expirePaperOrders(day,now+86400001);
+assert.equal(expiredOffline.pendingOrders?.length,0);
+assert.equal(expiredOffline.account.ordersMargin,0);
+assert.equal(expiredOffline.orderEvents?.some(e=>e.action==='expired'),true);
 const m=submitPaperOrder(empty,asset,{side:'Short',kind:'market',qty:1},now);
 assert.equal(m.positions.length,1);assert.equal(m.positions[0].side,'Short');
 const marketableBuy=submitPaperOrder(empty,asset,{side:'Long',kind:'limit',qty:1,price:101},now);
