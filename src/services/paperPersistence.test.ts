@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {initialPaperAccounts} from './paperAccounts';
+import {paperLedgerCriticalChanged} from './paperPersistence';
+const state=initialPaperAccounts();
+assert.equal(paperLedgerCriticalChanged(null,state),true);
+const rec=state.accounts[0],p=rec.portfolio;
+const mark={...state,accounts:[{...rec,portfolio:{...p,account:{...p.account,unrealizedPnL:2,equity:p.account.equity+2}}}]};
+assert.equal(paperLedgerCriticalChanged(state,mark),false);
+const fill={...state,accounts:[{...rec,portfolio:{...p,account:{...p.account,balance:p.account.balance-1}}}]};
+assert.equal(paperLedgerCriticalChanged(state,fill),true);
+console.log('Paper persistence distinguishes mark-to-market from durable transactions.');

@@ -56,6 +56,7 @@ import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
+import {paperLedgerCriticalChanged} from './services/paperPersistence';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, paperExecutionPrice, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
@@ -400,11 +401,12 @@ export default function App() {
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
   const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(()=>loadPaperAccounts(assets));
   const [paperStorageWriteFailed,setPaperStorageWriteFailed]=useState(false);
-  const paperTradingBlocked=isPaperStorageBlocked()||paperStorageWriteFailed;
+  const paperStorageBlockedRef=useRef(isPaperStorageBlocked());
+  const paperTradingBlocked=paperStorageBlockedRef.current||paperStorageWriteFailed;
   // Every source of account changes (tickets, rules, fills, tick subscriptions)
   // passes through this fail-closed gate. Recovering a broken ledger is explicit.
   const setPaperAccounts:typeof setPaperAccountsRaw=(change)=>{
-    if(isPaperStorageBlocked()||paperStorageWriteFailed){
+    if(paperStorageBlockedRef.current||paperStorageWriteFailed){
       setPaperError('Paper trading is locked while ledger recovery or persistence repair is required.');
       return;
     }
@@ -428,6 +430,7 @@ export default function App() {
     try{
       localStorage.removeItem(PAPER_ACCOUNTS_STORAGE_KEY);
       setPaperAccountsRaw(initialPaperAccounts());
+      paperStorageBlockedRef.current=false;
       setPaperStorageWriteFailed(false);
       setPaperError('Fresh paper account created. Original unreadable ledger remains in the recovery backup.');
     }catch(e){setPaperError('Storage unavailable; recovery cannot be completed.');}
@@ -597,11 +600,53 @@ export default function App() {
     });
     setPaperError('');
   };
-  useEffect(()=>{try{savePaperAccounts(paperAccounts);}
-    catch(e){console.warn('Unable to persist paper accounts',e);
+  // React's ordered state-updater queue processes every observed price tick,
+  // but mark-to-market UI refreshes must not rewrite localStorage each tick.
+  const latestPaperRef=useRef(paperAccounts);
+  const lastDurablePaperRef=useRef<PaperAccountsState|null>(null);
+  const paperWriteTimerRef=useRef<number|null>(null);
+  latestPaperRef.current=paperAccounts;
+  const persistPaperNow=useCallback(()=>{
+    if(paperWriteTimerRef.current!==null){
+      window.clearTimeout(paperWriteTimerRef.current);paperWriteTimerRef.current=null;
+    }
+    if(paperStorageBlockedRef.current)return;
+    const latest=latestPaperRef.current;
+    try{
+      savePaperAccounts(latest);
+      lastDurablePaperRef.current=latest;
+    }catch(e){
+      console.warn('Paper ledger persistence blocked',e);
+      paperStorageBlockedRef.current=true;
       setPaperStorageWriteFailed(true);
-      setPaperError(e instanceof Error?e.message:'Paper account saving is blocked.');}
-  },[paperAccounts]);
+      setPaperError(e instanceof Error?e.message:'Paper account saving is blocked.');
+      if(lastDurablePaperRef.current)setPaperAccountsRaw(lastDurablePaperRef.current);
+    }
+  },[]);
+  useEffect(()=>{
+    if(paperTradingBlocked)return;
+    if(paperLedgerCriticalChanged(lastDurablePaperRef.current,paperAccounts))persistPaperNow();
+    else if(paperWriteTimerRef.current===null)
+      paperWriteTimerRef.current=window.setTimeout(persistPaperNow,350);
+  },[paperAccounts,paperTradingBlocked,persistPaperNow]);
+  useEffect(()=>{
+    const onHide=()=>persistPaperNow();
+    const onStorage=(event:StorageEvent)=>{
+      if(event.key!==PAPER_ACCOUNTS_STORAGE_KEY)return;
+      paperStorageBlockedRef.current=isPaperStorageBlocked();
+      if(paperStorageBlockedRef.current){
+        setPaperStorageWriteFailed(true);
+        setPaperError('Paper ledger changed in another tab and requires recovery; execution is locked.');
+      }
+    };
+    window.addEventListener('pagehide',onHide);
+    window.addEventListener('storage',onStorage);
+    return ()=>{
+      window.removeEventListener('pagehide',onHide);
+      window.removeEventListener('storage',onStorage);
+      if(paperWriteTimerRef.current!==null)window.clearTimeout(paperWriteTimerRef.current);
+    };
+  },[persistPaperNow]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
   const [isTradeTicketOpen,setIsTradeTicketOpen]=useState(false);
   const [tradeTicketAccountSettings,setTradeTicketAccountSettings]=useState(false);
