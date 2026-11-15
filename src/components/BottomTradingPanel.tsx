@@ -14,6 +14,7 @@ import {RiskCenterPanel} from './RiskCenterPanel';
 import {summarizePaperAccounts} from '../services/portfolioAnalytics';
 import {MarketScreenerPanel} from './MarketScreenerPanel';
 import {MarketDataHealthPanel} from './MarketDataHealthPanel';
+import {CloudSyncPanel} from './CloudSyncPanel';
 import {ReplayBacktestPanel} from './ReplayBacktestPanel';
 import type {Timeframe} from '../types';
 import type {FeedHealth} from '../services/marketEvents';
@@ -48,11 +49,11 @@ export interface BottomTradingPanelProps {
   isOpen:boolean;setIsOpen:(open:boolean|((prev:boolean)=>boolean))=>void;
   isExpanded:boolean;setIsExpanded:(open:boolean|((prev:boolean)=>boolean))=>void;
 }
-type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics'|'risk'|'screener'|'dataHealth'|'replay';
+type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics'|'risk'|'screener'|'dataHealth'|'replay'|'cloud';
 const tabs:[Tab,string][]=[
   ['positions','Positions'],['orders','Orders'],['orderHistory','Order history'],
   ['balanceHistory','Balance history'],['activityLog','Activity log'],
-  ['tradeHistory','Trade history'],['analytics','Analytics'],['risk','Risk Center'],['screener','Screener'],['dataHealth','Data Health'],['replay','Replay & Backtest'],
+  ['tradeHistory','Trade history'],['analytics','Analytics'],['risk','Risk Center'],['screener','Screener'],['dataHealth','Data Health'],['replay','Replay & Backtest'],['cloud','Cloud Sync'],
 ];
 const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
@@ -292,6 +293,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           <strong className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(f.realizedPnL)} {paperSettings.currency}</strong>
         </div>):<p className="p-5 text-[#8792a6]">No closed paper trades yet.</p>}
       </div>}
+      {tab==='cloud'&&<CloudSyncPanel/>}
       {tab==='replay'&&<ReplayBacktestPanel asset={activeAsset} timeframe={activeTimeframe}/>} 
       {tab==='screener'&&<MarketScreenerPanel assets={allMarkets} onSelect={onSelectScreenedMarket} onAdd={onAddScreenedMarket}/>}
       {tab==='dataHealth'&&<MarketDataHealthPanel health={feedHealth} status={marketStatus}/>}
