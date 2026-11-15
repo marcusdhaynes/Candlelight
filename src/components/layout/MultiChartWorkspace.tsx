@@ -19,7 +19,7 @@ import {
 import { MainChart, MainChartRef } from '../MainChart';
 import { fetchHistoricalData,subscribeRealMarketData } from '../../services/dataFeed';
 import {combineHistoryWithLive,mergeLiveCandle} from '../../services/chartCandles';
-import {chartIdentity,marketIdentity,resolveWindowAsset} from '../../services/marketIdentity';
+import {chartIdentity,marketIdentity,resolveWindowAsset,matchesExactMarket} from '../../services/marketIdentity';
 import { Maximize2, Minimize2, ChevronDown, Check, RotateCcw, Columns } from 'lucide-react';
 
 interface MultiChartWorkspaceProps {
@@ -593,8 +593,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
               currentColor={currentColor}
               isLogScale={isLogScale}
               isPercentScale={isPercentScale}
-              openPosition={openPositions?.find(pos=>pos.symbol===winAsset.symbol &&
-                pos.exchange===(winAsset.source||winAsset.exchange) && pos.marketType===winAsset.marketType) || null}
+              openPosition={openPositions?.find(pos=>matchesExactMarket(pos,winAsset)) || null}
               onClosePosition={onClosePosition}
               onOpenConditionalOrder={onOpenConditionalOrder}
             />

@@ -449,8 +449,7 @@ export default function App() {
           if(spec.sizeUnit==='usd')return spec.size/price;
           return spec.size;
         };
-        const match=next.positions.find(p=>p.symbol===order.symbol
-          && p.exchange===(market.source||market.exchange)&&p.marketType===market.marketType);
+        const match=next.positions.find(p=>matchesExactMarket(p,market));
         if(order.action==='enter_long'||order.action==='enter_short'){
           const kind=spec.orderType==='limit'?'limit':'market';
           const price=kind==='limit'?(spec.limitPrice||0):market.price;

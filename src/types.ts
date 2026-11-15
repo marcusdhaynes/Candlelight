@@ -225,6 +225,8 @@ export interface PaperPosition {
   leverage?: number;
   category?: AssetCategory;
   marketType?: Asset['marketType'];
+  chainId?:string;
+  pairAddress?:string;
   openedAt?: number;
   lastMarkedAt?: number;
   tp?: number;

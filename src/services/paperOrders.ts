@@ -1,4 +1,5 @@
 import type {Asset} from '../types';
+import {matchesExactMarket} from './marketIdentity';
 import {
   type PaperPortfolio,accountLeverage,isFreshPaperQuote,paperCommission,
   placePaperPosition,markPaperPositions,recalculatePaperPortfolio,enableTrailingPaperStop,paperExecutionPrice,
@@ -13,6 +14,7 @@ export interface PaperEntryOrder {
   side:PaperOrderSide;kind:'limit'|'stop'|'stop-limit';
   qty:number;price:number;limitPrice?:number;currency:string;
   assetCategory:Asset['category'];marketType:Asset['marketType'];
+  chainId?:string;pairAddress?:string;
   leverage:number;tp?:number;sl?:number;
   trailingStopPercent?:number;
   takeProfitLevels?:PaperPartialTarget[];
@@ -121,6 +123,7 @@ export function submitPaperOrder(p:PaperPortfolio,a:Asset,request:PaperOrderRequ
     id:'pending-'+now+'-'+Math.random().toString(36).slice(2,9),
     symbol:a.symbol,exchange:a.source||a.exchange,side:request.side,kind:request.kind as PaperEntryOrder['kind'],
     qty:request.qty,price,limitPrice:request.limitPrice,currency:a.currency,assetCategory:a.category,marketType:a.marketType,
+    chainId:a.chainId,pairAddress:a.pairAddress,
     leverage,tp:request.tp,sl:request.sl,
     trailingStopPercent:request.trailingStopPercent,
     takeProfitLevels:request.takeProfitLevels,createdAt:now,
@@ -149,7 +152,7 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
   if(!notExpired.length)return markPaperPositions(next,a,at);
   const venue=a.source||a.exchange;
   for(const order of [...notExpired]){
-    if(order.symbol!==a.symbol||order.exchange!==venue||order.marketType!==a.marketType)continue;
+    if(!matchesExactMarket(order,a))continue;
     const triggerReached=order.side==='Long'?a.price>=order.price:a.price<=order.price;
     const triggered=order.kind==='stop-limit' && (order.status==='triggered'||triggerReached);
     if(order.kind==='stop-limit' && triggered && order.status!=='triggered'){

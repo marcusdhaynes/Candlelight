@@ -1,4 +1,5 @@
 import type { Asset, PaperAccount, PaperPosition } from '../types';
+import {matchesExactMarket} from './marketIdentity';
 import type { PaperEntryOrder,PaperOrderEvent } from './paperOrders';
 
 export const PAPER_STARTING_BALANCE = 10000;
@@ -131,7 +132,8 @@ export function placePaperPosition(
   const id = 'paper-'+at+'-'+Math.random().toString(36).slice(2,8);
   const position: PaperPosition = {
     id, symbol: asset.symbol, exchange: asset.source || asset.exchange,
-    side, qty: quantity, leverage, category:asset.category, marketType:asset.marketType, entryPrice: fillPrice, currentPrice: asset.price,
+    side, qty: quantity, leverage, category:asset.category, marketType:asset.marketType,
+    chainId:asset.chainId,pairAddress:asset.pairAddress,entryPrice: fillPrice, currentPrice: asset.price,
     unrealizedPnL: 0, unrealizedPnLPct: 0, tp, sl, openedAt: at, lastMarkedAt: at,
   };
   return recalculatePaperPortfolio({...portfolio,
@@ -187,9 +189,9 @@ export function updatePaperStops(input: PaperPortfolio,id:string,tp?:number,sl?:
 export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now()):PaperPortfolio{
   if(!isFreshPaperQuote(asset,at))return input;
   const venue=asset.source||asset.exchange;
-  if(!input.positions.some(p=>p.symbol===asset.symbol && p.exchange===venue && p.marketType===asset.marketType))return input;
+  if(!input.positions.some(p=>matchesExactMarket(p,asset)))return input;
   let next:PaperPortfolio={...input,positions:input.positions.map(p=>{
-    if(p.symbol!==asset.symbol||p.exchange!==venue||p.marketType!==asset.marketType)return p;
+    if(!matchesExactMarket(p,asset))return p;
     if(!p.trailingPercent)return {...p,currentPrice:asset.price,lastMarkedAt:at};
     const anchor=p.side==='Long'?
       Math.max(p.trailingAnchor||p.currentPrice,asset.price):
@@ -203,7 +205,7 @@ export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now(
   next=recalculatePaperPortfolio(next);
   // Execute TP/SL on the real observed tick (not an optimistic assumed fill).
   for(const p of [...next.positions]){
-    if(p.symbol!==asset.symbol||p.exchange!==venue||p.marketType!==asset.marketType)continue;
+    if(!matchesExactMarket(p,asset))continue;
     const hitSL=p.sl!==undefined&&(p.side==='Long'?asset.price<=p.sl:asset.price>=p.sl);
     if(hitSL){next=closePaperPosition(next,p.id,asset.price,undefined,at);continue;}
     if(p.tpLevels?.length){

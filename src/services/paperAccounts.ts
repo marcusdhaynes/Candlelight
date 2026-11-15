@@ -25,6 +25,8 @@ const validPortfolioPosition=(p:unknown):boolean=>{
   if(!object(p)||typeof p.id!=='string'||!p.id||typeof p.symbol!=='string'||!p.symbol||
     typeof p.exchange!=='string'||!p.exchange||!validMarketType(p.marketType)||
     !validSide(p.side)||!positive(p.qty)||!positive(p.entryPrice)||!positive(p.currentPrice)||
+    ((p.chainId!==undefined||p.pairAddress!==undefined)&&
+      (typeof p.chainId!=='string'||!p.chainId||typeof p.pairAddress!=='string'||!p.pairAddress))||
     !maybe(p.leverage,positive)||!maybe(p.openedAt,nonnegative)||!maybe(p.lastMarkedAt,nonnegative)||
     !maybe(p.unrealizedPnL,finite)||!maybe(p.unrealizedPnLPct,finite)||
     !maybe(p.tp,positive)||!maybe(p.sl,positive)||!maybe(p.trailingPercent,n=>positive(n)&&Number(n)<100)||
@@ -35,6 +37,8 @@ const validPortfolioPosition=(p:unknown):boolean=>{
 const validPendingOrder=(o:unknown):boolean=>object(o)&&typeof o.id==='string'&&!!o.id&&
   typeof o.symbol==='string'&&!!o.symbol&&typeof o.exchange==='string'&&!!o.exchange&&
   validMarketType(o.marketType)&&validSide(o.side)&&
+  ((o.chainId===undefined&&o.pairAddress===undefined)||
+    (typeof o.chainId==='string'&&!!o.chainId&&typeof o.pairAddress==='string'&&!!o.pairAddress))&&
   ['limit','stop','stop-limit'].includes(o.kind)&&
   positive(o.qty)&&positive(o.price)&&positive(o.leverage)&&
   maybe(o.limitPrice,positive)&&maybe(o.tp,positive)&&maybe(o.sl,positive)&&

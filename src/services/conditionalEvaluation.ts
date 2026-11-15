@@ -2,6 +2,7 @@ import type {Asset} from '../types';
 import type {PaperPortfolio} from './paperTrading';
 import type {ConditionalOrder,SingleCondition} from '../types/conditionalOrders';
 import {ruleCanActivate,ruleMatchesMarket} from './conditionalSafety';
+import {matchesExactMarket} from './marketIdentity';
 
 export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:number|undefined,
   portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>):boolean{
@@ -9,8 +10,7 @@ export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:numb
   if(cond.dependencyType==='alert')
     return !!cond.dependencyId&&alertEvents.has(cond.dependencyId)&&cond.operator==='triggered';
   if(cond.dependencyType==='position'){
-    const position=portfolio.positions.find(p=>p.symbol===market.symbol &&
-      p.exchange===(market.source||market.exchange)&&p.marketType===market.marketType);
+    const position=portfolio.positions.find(p=>matchesExactMarket(p,market));
     if(!position||!Number.isFinite(threshold))return false;
     if(cond.operator==='pnl_above_percent')return position.unrealizedPnLPct>=Math.abs(threshold!);
     if(cond.operator==='pnl_below_percent')return position.unrealizedPnLPct<=-Math.abs(threshold!);

@@ -28,6 +28,11 @@ closeTo(opened.account.balance,10000);
 closeTo(opened.account.accountMargin,200);
 closeTo(opened.account.availableFunds,opened.account.equity-200);
 const wrongMarketMark=markPaperPositions(opened,{...asset,marketType:'swap',price:105,quoteUpdatedAt:now+999},now+999);
+const dexA={...asset,chainId:'base',pairAddress:'0xabc'};
+const dexB={...asset,chainId:'base',pairAddress:'0xdef'};
+const dexOpened=placePaperPosition(empty,dexA,'Long',1,1,110,90,now);
+assert.equal(markPaperPositions(dexOpened,{...dexB,price:90,quoteUpdatedAt:now+1000},now+1000),dexOpened);
+assert.equal(markPaperPositions(dexOpened,{...dexA,price:90,quoteUpdatedAt:now+1000},now+1000).positions.length,0);
 assert.equal(wrongMarketMark,opened); // swap mark must not execute spot TP/SL or rewrite spot equity
 const marked=markPaperPositions(opened,{...asset,price:110,quoteUpdatedAt:now+1000},now+1000);
 closeTo(marked.positions[0].unrealizedPnL,20);
