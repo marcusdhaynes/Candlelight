@@ -315,7 +315,8 @@ export interface WaveScoreData {
 }
 
 export type JournalTab = 
-  | 'overview' 
+  | 'overview'
+  | 'insights'
   | 'calendar' 
   | 'trades' 
   | 'evaluator' 

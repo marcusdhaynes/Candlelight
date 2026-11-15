@@ -32,6 +32,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { JournalDashboard } from './JournalDashboard';
+import {JournalInsightsPanel} from './JournalInsightsPanel';
 import { JournalCalendar } from './JournalCalendar';
 import { JournalTradeLog } from './JournalTradeLog';
 import { JournalEvaluator } from './JournalEvaluator';
@@ -783,6 +784,16 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
                 <PieChart className="w-3.5 h-3.5" />
               </button>
 
+              <button
+                onClick={()=>setActiveTab('insights')}
+                className={`w-[24px] h-[24px] rounded-md flex items-center justify-center transition-colors cursor-pointer ${
+                  activeTab==='insights'?'bg-[#2962ff] text-white':'text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#1e222d]'
+                }`}
+                title="Strategy, Session & Portfolio Insights"
+                aria-label="Journal Strategy Insights"
+              >
+                <Sliders className="w-3.5 h-3.5"/>
+              </button>
               {/* 3. Calendar View */}
               <button
                 onClick={() => setActiveTab('calendar')}
@@ -926,6 +937,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
                 />
               )}
 
+              {activeTab==='insights'&&<JournalInsightsPanel trades={trades}/>}
               {activeTab === 'overview' && (
                 <JournalDashboard
                   stats={stats}
