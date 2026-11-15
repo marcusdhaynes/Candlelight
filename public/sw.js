@@ -1,12 +1,27 @@
 /* Only immutable app-shell assets; never store or synthesize market quotes,
  * broker sessions, user records, trading events, API responses or credentials. */
-const CACHE='candlelight-app-shell-v1';
+const CACHE='candlelight-app-shell-v2';
 const PREFIX='candlelight-app-shell-';
 const scope=self.registration.scope;
 self.addEventListener('install',event=>{
- event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll([
-   scope,scope+'manifest.webmanifest',scope+'pwa-icon.svg',scope+'logo.png']))
-   .then(()=>self.skipWaiting()));
+ event.waitUntil((async()=>{
+   const cache=await caches.open(CACHE);
+   // Vite emits content-hashed JS/CSS. Cache ONLY the actual current shell
+   // referenced in the deployed HTML; offline reload otherwise shows a blank page.
+   const entry=await fetch(scope,{cache:'no-store'});
+   if(!entry.ok)throw Error('Cannot cache application shell');
+   const html=await entry.text();
+   const assets=[...html.matchAll(/(?:src|href)="([^"]+\\.(?:js|css))"/g)]
+     .map(match=>new URL(match[1],scope).href)
+     .filter(url=>{
+       const resource=new URL(url),origin=new URL(scope);
+       return resource.origin===origin.origin&&resource.pathname.startsWith(origin.pathname);
+     });
+   await cache.put(scope,new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8'}}));
+   await cache.addAll([...new Set([...assets,
+     scope+'manifest.webmanifest',scope+'pwa-icon.svg',scope+'logo.png'])]);
+   await self.skipWaiting();
+ })());
 });
 self.addEventListener('activate',event=>{
  event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>
