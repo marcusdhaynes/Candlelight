@@ -360,7 +360,7 @@ export default function App() {
 
 
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
-  const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(loadPaperAccounts);
+  const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(()=>loadPaperAccounts(assets));
   const [paperStorageWriteFailed,setPaperStorageWriteFailed]=useState(false);
   const paperTradingBlocked=isPaperStorageBlocked()||paperStorageWriteFailed;
   // Every source of account changes (tickets, rules, fills, tick subscriptions)
