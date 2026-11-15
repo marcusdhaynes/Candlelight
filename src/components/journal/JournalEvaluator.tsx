@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import {simulateJournalTrades} from '../../services/journalScenarios';
 import { JournalTrade } from '../../types';
 import { JournalStats, getSetupsBreakdown, getMistakesBreakdown } from '../../services/journalAnalytics';
 import { JournalLayoutSettings } from './JournalGridSettingsModal';
@@ -43,31 +44,12 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
   const [strictStopLoss, setStrictStopLoss] = useState(true);
   const [capLosersAt1R, setCapLosersAt1R] = useState(false);
 
-  // Compute Simulated Trades
-  const simulatedTrades = trades.filter((t) => {
-    if (eliminateFomo && t.mistakes?.includes('fomo')) {
-      return false; // simulate never taking this trade
-    }
-    return true;
-  }).map((t) => {
-    let ret = t.netReturn;
-    // Strict stop loss simulation: If trade lacked stop loss and had large loss, cap loss at -$50
-    if (strictStopLoss && t.mistakes?.includes("didn't set up stop loss") && ret < -50) {
-      ret = -50;
-    }
-    if (capLosersAt1R && ret < -80) {
-      ret = -80;
-    }
-    return {
-      ...t,
-      netReturn: ret,
-      status: ret >= 0 ? (ret === 0 ? 'BE' : 'WIN') : 'LOSS',
-    };
+  const simulatedTrades=simulateJournalTrades(trades,{
+    eliminateFomo,useRecordedStop:strictStopLoss,capAtOneR:capLosersAt1R
   });
-
   // Calculate simulated metrics
-  const simTotalReturn = simulatedTrades.reduce((acc, t) => acc + t.netReturn, 0);
-  const simWins = simulatedTrades.filter((t) => t.status === 'WIN').length;
+  const simTotalReturn = simulatedTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
+  const simWins = simulatedTrades.filter((t) => t.status!=='OPEN'&&t.netReturn>0).length;
   const simClosed = simulatedTrades.filter((t) => t.status !== 'OPEN').length;
   const simWinRate = simClosed > 0 ? Number(((simWins / simClosed) * 100).toFixed(1)) : 0;
   const profitBoost = simTotalReturn - stats.totalNetReturn;
@@ -89,7 +71,7 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
   // Emotions breakdown based on active view mode
   const emotionMap: Record<string, { count: number; wins: number; pnl: number }> = {};
   for (const t of activeTrades) {
-    const emo = t.emotion || 'Disciplined';
+    const emo = t.emotion || 'Unspecified';
     if (!emotionMap[emo]) emotionMap[emo] = { count: 0, wins: 0, pnl: 0 };
     emotionMap[emo].count++;
     if (t.status === 'WIN') emotionMap[emo].wins++;
@@ -110,9 +92,9 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
             <ArrowLeftRight className="w-3.5 h-3.5" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-bold text-xs text-white">TradeZella & TraderSync What-If Simulator</span>
+            <span className="font-bold text-xs text-white">Journal What-If Scenarios</span>
             <span className="text-[10px] uppercase font-bold bg-[#00ffa3]/20 text-[#00ffa3] border border-[#00ffa3]/30 px-1.5 py-0.2 rounded">
-              AI Evaluator
+              Rule-Based Scenario
             </span>
           </div>
         </div>
@@ -157,7 +139,7 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
                 </h2>
               </div>
               <p className="text-[11px] text-[#848e9c] mt-1 max-w-xl leading-relaxed">
-                Simulate how your edge performs by removing behavioral mistakes, applying strict stop losses, or eliminating emotional slipups.
+                Compare counterfactual results using recorded trades, quantities and stop prices. Missing risk data is not guessed.
               </p>
             </div>
 
@@ -166,13 +148,13 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
               <div>
                 <div className="text-[9px] uppercase text-[#848e9c] font-semibold">Simulated P&L</div>
                 <div className="text-base font-bold font-mono text-[#00ffa3]">
-                  +${simTotalReturn.toFixed(2)}
+                  {simTotalReturn>=0?'+':'-'}${Math.abs(simTotalReturn).toFixed(2)}
                 </div>
               </div>
               <div>
                 <div className="text-[9px] uppercase text-[#848e9c] font-semibold">Edge Improvement</div>
                 <div className="text-base font-bold font-mono text-[#00e5ff] flex items-center">
-                  <ArrowUpRight className="w-3.5 h-3.5" /> +${Math.max(0, profitBoost).toFixed(2)}
+                  <ArrowUpRight className="w-3.5 h-3.5" /> {profitBoost>=0?'+':'-'}${Math.abs(profitBoost).toFixed(2)}
                 </div>
               </div>
               <div>
@@ -205,7 +187,7 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#089981]" /> Strict Stop Loss Enforced
               </span>
-              <p className="text-[10px] text-[#787b86]">Caps runaway losses without stop loss at -$50</p>
+              <p className="text-[10px] text-[#787b86]">Uses a stop price recorded in the trade; missing stops cannot be simulated.</p>
             </div>
             <input
               type="checkbox"
@@ -220,7 +202,7 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
               <span className="text-xs font-bold text-white flex items-center gap-1.5">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-[#2962ff]" /> Cap Losers at 1R
               </span>
-              <p className="text-[10px] text-[#787b86]">Never let a single trade exceed 1R risk</p>
+              <p className="text-[10px] text-[#787b86]">Applies 1R only when an actual entry, size and protective stop are recorded.</p>
             </div>
             <input
               type="checkbox"
@@ -448,7 +430,7 @@ export const JournalEvaluator: React.FC<JournalEvaluatorProps> = ({
             <div className="mt-3 p-2.5 bg-[#131722] border border-[#2962ff]/30 rounded-lg text-xs text-[#d1d4dc] flex items-start gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-[#2962ff] shrink-0 mt-0.5" />
               <p className="leading-relaxed text-[11px]">
-                <strong>Key Psychological Finding:</strong> Trades executed with <em>Disciplined</em> and <em>Confident</em> mindset yielded an average win rate of <strong>83%</strong>, while trades marked with <em>FOMO</em> or <em>Revenge</em> generated <strong>88%</strong> of net drawdowns.
+                <strong>Recorded Emotion Coverage:</strong> {trades.filter(t=>t.status!=='OPEN'&&!!t.emotion).length} of {trades.filter(t=>t.status!=='OPEN').length} closed trades carry an emotion tag. Unspecified trades are not classified as disciplined. Scenario outcomes are hypothetical, not proven forecasts.
               </p>
             </div>
           </div>
