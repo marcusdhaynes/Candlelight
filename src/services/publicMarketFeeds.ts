@@ -1,6 +1,7 @@
 import type { Asset, OHLCV, Timeframe, TradeItem } from '../types';
 import { marketFetch } from './marketApi';
 import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
+import {createCoinbaseDepthState,acceptCoinbaseLevel2,coinbaseDepthRows} from './orderDepth';
 
 export type PublicCallbacks = {
   onPriceUpdate: (price: number, change?: number, changePct?: number) => void;
@@ -291,6 +292,8 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   let lastTick = 0, lastBroadcast = 0, lastOpen = Date.now(), retry = 0;
   let candle: OHLCV | null = null;
   let pending: { price: number; size: number; side: 'buy'|'sell' } | null = null;
+  const coinbaseDepth=createCoinbaseDepthState();
+  let bookDirty=false,lastBookBroadcast=0;
   const status = (connected: boolean, via: string) => {
     if (stopped) return;
     cb.onStatusChange({ connected, provider: `${a.source || a.exchange} · ${via}`, latencyMs: 0 });
@@ -313,7 +316,13 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     }
   };
   const flush = setInterval(() => {
-    if (!pending || !candle || stopped) return;
+    if (stopped) return;
+    if (bookDirty && coinbaseDepth.ready && Date.now()-lastBookBroadcast>=250) {
+      bookDirty=false;
+      lastBookBroadcast=Date.now();
+      cb.onOrderBook(coinbaseDepthRows(coinbaseDepth));
+    }
+    if (!pending || !candle) return;
     const t = pending; pending = null;
     cb.onPriceUpdate(t.price);
     cb.onCandleTick({ ...candle }, false);
@@ -345,7 +354,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
           if (m) ws?.send(JSON.stringify({ method: 'subscribe', params: {
             channel: 'ticker', symbol: [m[1].replace(/^XXBT$/, 'BTC').replace(/^XBT$/, 'BTC') + '/' + m[2]] }}));
         } else if (source === 'coinbase') ws?.send(JSON.stringify({
-          type: 'subscribe', product_ids: [coinbaseSymbol(symbol)], channels: ['ticker'] }));
+          type: 'subscribe', product_ids: [coinbaseSymbol(symbol)], channels: ['ticker','level2'] }));
         else if (source === 'okx') ws?.send(JSON.stringify({ op: 'subscribe', args: [{ channel: 'tickers', instId: symbol }] }));
         else if (source === 'bybit') ws?.send(JSON.stringify({ op: 'subscribe', args: ['tickers.' + symbol] }));
         else if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol)
@@ -362,7 +371,11 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
             if (raw.channel === 'ticker' && Array.isArray(d) && d[0]?.last)
               tick(Number(d[0].last),0,'buy');
           } else if (source === 'coinbase') {
-            if (raw.type === 'ticker' && raw.product_id === coinbaseSymbol(symbol))
+            const product=coinbaseSymbol(symbol);
+            if ((raw.type === 'snapshot' || raw.type === 'l2update') &&
+                acceptCoinbaseLevel2(coinbaseDepth,raw,product))
+              bookDirty=true;
+            else if(raw.type === 'ticker' && raw.product_id === product)
               tick(Number(raw.price),Number(raw.last_size)||0,raw.side==='sell'?'sell':'buy');
           } else if (source === 'binance' || source === 'binance.us') {
             if (raw.e === 'trade') tick(Number(raw.p),Number(raw.q)||0,raw.m?'sell':'buy');
@@ -381,6 +394,12 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       ws.onerror = () => { if (!stopped) status(false,'WebSocket unavailable · checking REST'); };
       ws.onclose = () => {
         if (stopped) return;
+        if(source==='coinbase'){
+          coinbaseDepth.ready=false;
+          coinbaseDepth.bids.clear();coinbaseDepth.asks.clear();
+          bookDirty=false;
+          cb.onOrderBook({bids:[],asks:[]});
+        }
         status(false,'WebSocket disconnected · REST fallback');
         reconnect = setTimeout(open, Math.min(30000,2000 * 2 ** Math.min(retry++,4)));
       };

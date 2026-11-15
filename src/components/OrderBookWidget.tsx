@@ -96,8 +96,8 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
                     <span className="text-[#f23645] font-medium relative z-10">
                       {ask.price.toFixed(digits)}
                     </span>
-                    <span className="text-right text-[#d1d4dc] relative z-10">{ask.size.toFixed(2)}</span>
-                    <span className="text-right text-[#787b86] relative z-10">{ask.total.toFixed(2)}</span>
+                    <span className="text-right text-[#d1d4dc] relative z-10">{ask.size.toLocaleString(undefined,{maximumFractionDigits:8})}</span>
+                    <span className="text-right text-[#787b86] relative z-10">{ask.total.toLocaleString(undefined,{maximumFractionDigits:8})}</span>
                   </div>
                 );
               })}
@@ -130,8 +130,8 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
                   <span className="text-[#089981] font-medium relative z-10">
                     {bid.price.toFixed(digits)}
                   </span>
-                  <span className="text-right text-[#d1d4dc] relative z-10">{bid.size.toFixed(2)}</span>
-                  <span className="text-right text-[#787b86] relative z-10">{bid.total.toFixed(2)}</span>
+                  <span className="text-right text-[#d1d4dc] relative z-10">{bid.size.toLocaleString(undefined,{maximumFractionDigits:8})}</span>
+                  <span className="text-right text-[#787b86] relative z-10">{bid.total.toLocaleString(undefined,{maximumFractionDigits:8})}</span>
                 </div>
               );
             })}
