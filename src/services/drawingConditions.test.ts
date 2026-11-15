@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import type {Drawing} from '../types';
+import {drawingPriceAt,drawingConditionMet} from './drawingConditions';
+const line={id:'1',type:'trendline',color:'#fff',lineWidth:1,points:[{time:100,price:10},{time:200,price:20}]} as Drawing;
+assert.equal(drawingPriceAt(line,150,'greater_than'),15);
+assert.equal(drawingPriceAt(line,250,'greater_than'),undefined);
+assert.equal(drawingConditionMet(line,'crosses_above',16,13,150,140),true);
+assert.equal(drawingConditionMet(line,'crosses_above',16,15,150,140),false);
+assert.equal(drawingConditionMet(line,'crosses_above',21,13,250,140),false);
+const box={...line,type:'rectangle' as const};
+assert.equal(drawingConditionMet(box,'touches',15,undefined,150,undefined),true);
+assert.equal(drawingConditionMet(box,'touches',25,undefined,150,undefined),false);
+assert.equal(drawingConditionMet({...line,type:'fibonacci'},'crosses_above',16,13,150,140),false);
+console.log('Geometry-aware drawing threshold and unavailable drawing tests passed.');

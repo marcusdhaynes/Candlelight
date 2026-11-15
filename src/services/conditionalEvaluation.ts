@@ -3,9 +3,11 @@ import type {PaperPortfolio} from './paperTrading';
 import type {ConditionalOrder,SingleCondition} from '../types/conditionalOrders';
 import {ruleCanActivate,ruleMatchesMarket} from './conditionalSafety';
 import {matchesExactMarket} from './marketIdentity';
+import type {Drawing} from '../types';
+import {drawingConditionMet} from './drawingConditions';
 
 export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:number|undefined,
-  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>):boolean{
+  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>,drawings:readonly Drawing[]=[],previousAt?:number):boolean{
   const threshold=cond.thresholdValue;
   if(cond.dependencyType==='alert')
     return !!cond.dependencyId&&alertEvents.has(cond.dependencyId)&&cond.operator==='triggered';
@@ -16,7 +18,12 @@ export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:numb
     if(cond.operator==='pnl_below_percent')return position.unrealizedPnLPct<=-Math.abs(threshold!);
     return false;
   }
-  if(!['price','drawing'].includes(cond.dependencyType) ||
+  if(cond.dependencyType==='drawing'){
+    const d=drawings.find(d=>d.id===cond.dependencyId);
+    return !!d&&drawingConditionMet(d,cond.operator,market.price,previous,
+      (market.quoteUpdatedAt||Date.now())/1000,previousAt===undefined?undefined:previousAt/1000);
+  }
+  if(cond.dependencyType!=='price'||
     !Number.isFinite(threshold)||!Number.isFinite(market.price)||threshold!<=0)return false;
   if(cond.operator==='crosses_above')return previous!==undefined&&previous<threshold!&&market.price>=threshold!;
   if(cond.operator==='crosses_below')return previous!==undefined&&previous>threshold!&&market.price<=threshold!;
@@ -26,9 +33,10 @@ export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:numb
   return false;
 }
 export function ruleConditionsMet(order:ConditionalOrder,market:Asset,previous:number|undefined,
-  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>):boolean{
+  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>,
+  drawings:readonly Drawing[]=[],previousAt?:number):boolean{
   if(!ruleCanActivate(order)||!ruleMatchesMarket(order,market))return false;
-  const values=order.conditions.map(c=>ruleConditionMet(c,market,previous,portfolio,alertEvents));
+  const values=order.conditions.map(c=>ruleConditionMet(c,market,previous,portfolio,alertEvents,drawings,previousAt));
   if(!values.length)return false;
   if(order.conditionLogic==='IF (AND)')return values.every(Boolean);
   if(order.conditionLogic==='IF (OR)')return values.some(Boolean);

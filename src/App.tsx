@@ -251,11 +251,25 @@ export default function App() {
     try{localStorage.setItem('tv_drawings_by_market_v1',JSON.stringify(drawingsByMarket));}
     catch(e){console.warn('Could not save per-market drawings',e);}
   },[drawingsByMarket]);
-  const [drawingHistory, setDrawingHistory] = useState<Drawing[][]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  useEffect(()=>{setDrawingHistory([]);setHistoryIndex(-1);},
-    [activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-      activeAsset.chainId,activeAsset.pairAddress]);
+  const drawingHistoryRef=useRef<Record<string,{past:Drawing[][];future:Drawing[][]}>>({});
+  const drawingLastRef=useRef<Record<string,Drawing[]>>({...drawingsByMarket});
+  const replayingDrawingKeysRef=useRef<Set<string>>(new Set());
+  useEffect(()=>{
+    for(const [key,current] of Object.entries(drawingsByMarket)){
+      const previous=drawingLastRef.current[key];
+      if(previous&&JSON.stringify(previous)!==JSON.stringify(current)){
+        if(replayingDrawingKeysRef.current.has(key))replayingDrawingKeysRef.current.delete(key);
+        else{
+          const history=drawingHistoryRef.current[key]||{past:[],future:[]};
+          history.past.push(structuredClone(previous));
+          if(history.past.length>100)history.past.shift();
+          history.future=[];
+          drawingHistoryRef.current[key]=history;
+        }
+      }
+      drawingLastRef.current[key]=structuredClone(current);
+    }
+  },[drawingsByMarket]);
 
   // State: Indicators
   const [indicators, setIndicators] = useState<IndicatorSettings>(() => {
@@ -445,6 +459,7 @@ export default function App() {
   const [closeReviewId,setCloseReviewId]=useState<string|null>(null);
   const [closeReviewQty,setCloseReviewQty]=useState('');
   const previousRulePrices=useRef<Record<string,number>>({});
+  const previousRuleTimes=useRef<Record<string,number>>({});
   const applyRuleToPortfolio = useCallback((order:ConditionalOrder,base:PaperPortfolio,market:Asset):PaperPortfolio => {
     if(!ruleMatchesMarket(order,market)||!ruleCanActivate(order)||!isFreshPaperQuote(market))
       throw new Error('Conditional order needs a fresh quote from the selected market.');
@@ -504,7 +519,9 @@ export default function App() {
   const executeObservedTick=useCallback((market:Asset,at:number,events:string[]=[])=>{
     if(!isFreshPaperQuote(market,at))return;
     const key=marketIdentity(market),previous=previousRulePrices.current[key];
+    const previousAt=previousRuleTimes.current[key];
     previousRulePrices.current[key]=market.price;
+    previousRuleTimes.current[key]=at;
     const eventIds=new Set(events);
     setPaperAccounts(state=>{
       let changed=false;
@@ -514,7 +531,7 @@ export default function App() {
         for(let i=0;i<record.orders.length;i++){
           const order=orders[i];
           if(order.status!=='active'||!ruleCanActivate(order)||!ruleMatchesMarket(order,market))continue;
-          const met=ruleConditionsMet(order,market,previous,portfolio,eventIds);
+          const met=ruleConditionsMet(order,market,previous,portfolio,eventIds,drawingsByMarket[key]||[],previousAt);
           // Re-arm WHENEVER only after a false observation. Alert dependencies
           // require an actual new event, never a persisted "triggered" flag.
           if(order.conditionLogic==='WHENEVER' && Boolean(order.lastConditionSatisfied)!==met){
@@ -536,7 +553,7 @@ export default function App() {
       });
       return changed?{...state,accounts}:state;
     });
-  },[applyRuleToPortfolio]);
+  },[applyRuleToPortfolio,drawingsByMarket]);
 
   // Held paper positions and pending orders need real, venue-scoped stream
   // updates; REST snapshots must never fill a pending order or protective stop.
@@ -1440,26 +1457,20 @@ export default function App() {
   };
 
   // Clear drawings
-  const handleClearDrawings = () => {
-    if (drawings.length === 0) return;
-    setDrawingHistory((prev) => [...prev, drawings]);
-    setDrawings([]);
+  const handleClearDrawings=()=>{if(drawings.length)setDrawings([]);};
+  const handleUndoDrawing=()=>{
+    const key=marketIdentity(activeAsset),history=drawingHistoryRef.current[key];
+    if(!history?.past.length)return;
+    history.future.push(structuredClone(drawings));
+    replayingDrawingKeysRef.current.add(key);
+    setDrawings(history.past.pop()!);
   };
-
-  // Undo Drawing
-  const handleUndoDrawing = () => {
-    if (drawings.length === 0) return;
-    const previous = drawings.slice(0, -1);
-    setDrawingHistory((prev) => [...prev, drawings]);
-    setDrawings(previous);
-  };
-
-  // Redo Drawing
-  const handleRedoDrawing = () => {
-    if (drawingHistory.length === 0) return;
-    const lastState = drawingHistory[drawingHistory.length - 1];
-    setDrawingHistory((prev) => prev.slice(0, -1));
-    setDrawings(lastState);
+  const handleRedoDrawing=()=>{
+    const key=marketIdentity(activeAsset),history=drawingHistoryRef.current[key];
+    if(!history?.future.length)return;
+    history.past.push(structuredClone(drawings));
+    replayingDrawingKeysRef.current.add(key);
+    setDrawings(history.future.pop()!);
   };
 
   // Asset Selection

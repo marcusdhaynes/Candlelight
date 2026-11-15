@@ -8,7 +8,9 @@ export function conditionSupported(c:SingleCondition):boolean {
   if(c.dependencyType==='alert')return c.operator==='triggered'&&!!c.dependencyId;
   if(c.dependencyType==='position')return ['pnl_above_percent','pnl_below_percent'].includes(c.operator)
     &&Number.isFinite(c.thresholdValue);
-  if(c.dependencyType==='price'||c.dependencyType==='drawing')
+  if(c.dependencyType==='drawing')
+    return !!c.dependencyId&&['crosses_above','crosses_below','touches','greater_than','less_than'].includes(c.operator);
+  if(c.dependencyType==='price')
     return ['crosses_above','crosses_below','touches','greater_than','less_than'].includes(c.operator)
       &&Number.isFinite(c.thresholdValue)&&Number(c.thresholdValue)>0;
   return false;
