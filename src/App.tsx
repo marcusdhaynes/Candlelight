@@ -57,7 +57,7 @@ import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
-import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
+import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, paperExecutionPrice, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = marketIdentity;
@@ -1438,10 +1438,12 @@ export default function App() {
     paperCommission(paperPortfolio.settings,{
       category:closeReviewPosition.category||'crypto',
       marketType:closeReviewPosition.marketType||'spot',
-    },closeQuantity,closeReviewPosition.currentPrice):0;
+    },closeQuantity,paperExecutionPrice(paperPortfolio.settings,closeReviewPosition.currentPrice,
+      closeReviewPosition.side,'exit')):0;
   const closePreviewPnl=closeReviewPosition&&Number.isFinite(closeQuantity)?
     (closeReviewPosition.side==='Long'?1:-1)*
-    (closeReviewPosition.currentPrice-closeReviewPosition.entryPrice)*closeQuantity-closePreviewFee:0;
+    (paperExecutionPrice(paperPortfolio.settings,closeReviewPosition.currentPrice,closeReviewPosition.side,'exit')-
+      closeReviewPosition.entryPrice)*closeQuantity-closePreviewFee:0;
 
   return (
     <div
