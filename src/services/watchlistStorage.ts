@@ -25,9 +25,11 @@ export function isWatchlistStorageBlocked():boolean{
 export function saveWatchlistBackup(raw:string):boolean{
   try{
     const existing=localStorage.getItem(WATCHLIST_BACKUP_KEY);
-    if(!existing)localStorage.setItem(WATCHLIST_BACKUP_KEY,raw);
-    else if(existing!==raw)localStorage.setItem(WATCHLIST_BACKUP_KEY+'-'+Date.now(),raw);
-    return localStorage.getItem(WATCHLIST_BACKUP_KEY)!==null;
+    if(existing!==raw){
+      if(existing!==null)localStorage.setItem(WATCHLIST_BACKUP_KEY+'-archive-'+Date.now()+'-'+Math.random().toString(36).slice(2),existing);
+      localStorage.setItem(WATCHLIST_BACKUP_KEY,raw);
+    }
+    return localStorage.getItem(WATCHLIST_BACKUP_KEY)===raw;
   }catch{return false;}
 }
 export function loadWatchlists(fallback:Watchlist[]):Watchlist[]{

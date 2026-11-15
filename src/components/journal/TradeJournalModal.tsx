@@ -96,7 +96,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
     if(!journalRecoveryBlocked)return;
     try{
       const raw=localStorage.getItem(JOURNAL_KEY);
-      if(raw&&!localStorage.getItem(JOURNAL_BACKUP_KEY))throw Error('Backup not yet available. Original journal remains protected.');
+      if(raw&&localStorage.getItem(JOURNAL_BACKUP_KEY)!==raw)throw Error('Backup does not match the damaged journal. Original is protected.');
       if(!window.confirm('The original journal is backed up. Starting fresh replaces its active data; export the backup first. Continue?'))return;
       localStorage.removeItem(JOURNAL_KEY);
       setTrades([]);setJournalRecoveryBlocked(false);setJournalStorageError('');

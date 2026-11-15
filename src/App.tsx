@@ -153,7 +153,9 @@ export default function App() {
   const resetCorruptWatchlists=()=>{
     if(!isWatchlistStorageBlocked())return;
     try{
-      if(!localStorage.getItem(WATCHLIST_BACKUP_KEY))throw Error('No recovery backup exists; original collection is preserved.');
+      const damaged=localStorage.getItem(WATCHLIST_LEGACY_KEY)??localStorage.getItem(WATCHLIST_KEY);
+      if(!damaged||localStorage.getItem(WATCHLIST_BACKUP_KEY)!==damaged)
+        throw Error('Recovery backup does not match the damaged watchlist; original collection is protected.');
       if(!window.confirm('Your original watchlists are backed up. Reset active watchlists to defaults? Export the backup first.'))return;
       localStorage.removeItem(WATCHLIST_KEY);
       localStorage.removeItem(WATCHLIST_LEGACY_KEY);
@@ -968,7 +970,9 @@ export default function App() {
       syncSettings: DEFAULT_SYNC_SETTINGS,
       autosave: true,
       shareEnabled: false,
-      windows: [{ id: 'win-0', symbol: activeAsset.symbol, timeframe: activeTimeframe }],
+      windows: [{id:'win-0',symbol:activeAsset.symbol,
+        source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType,
+        chainId:activeAsset.chainId,pairAddress:activeAsset.pairAddress,timeframe:activeTimeframe}],
       activeWindowIndex: 0,
     };
     const updated = [...savedLayouts, freshLayout];
@@ -1264,7 +1268,10 @@ export default function App() {
   const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
     try {
       const next=submitPaperOrder(paperPortfolio,activeAsset,request);
-      setPaperPortfolio(next);setPaperError('');
+      // Revalidate against current state at application time; never replace
+      // an intervening tick fill with a portfolio computed from a stale render.
+      setPaperPortfolio(prev=>prev===paperPortfolio?next:submitPaperOrder(prev,activeAsset,request));
+      setPaperError('');
       if(request.kind!=='market')setIsBottomTradingOpen(true);
       return null;
     }catch(e){
@@ -1275,8 +1282,9 @@ export default function App() {
   const executeClosePosition = (id:string,quantity?:number) => {
     const p=paperPositions.find(x=>x.id===id);
     if(!p)return;
-    if(!p.lastMarkedAt || Date.now()<p.lastMarkedAt || Date.now()-p.lastMarkedAt>30000){
-      setPaperError('Cannot close at an unverified stale price. Select the market and wait for its live quote.');
+    if(!matchesExactMarket(p,activeAsset)||!isFreshPaperQuote(activeAsset)||
+      !p.lastMarkedAt||Date.now()<p.lastMarkedAt||Date.now()-p.lastMarkedAt>15000){
+      setPaperError('Select the exact position market and establish a currently connected verified trade stream to close.');
       return;
     }
     try {

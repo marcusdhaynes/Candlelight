@@ -42,19 +42,37 @@ async function okx(): Promise<Asset[]> {
   if (!out.length) throw new Error('Instruments blocked or unavailable');
   return out;
 }
-async function bybit(): Promise<Asset[]> {
-  const requests = await Promise.allSettled(['spot', 'linear'].map(category =>
-    json(`https://api.bybit.com/v5/market/instruments-info?category=${category}&limit=1000`)));
-  const out: Asset[] = [];
-  requests.forEach((result, i) => {
-    if (result.status !== 'fulfilled' || result.value.retCode !== 0) return;
-    for (const p of result.value.result?.list || []) {
-      if (p.status && p.status !== 'Trading') continue;
-      out.push(mk(p.symbol, p.baseCoin, p.quoteCoin, 'Bybit', i === 0 ? 'spot' : 'swap'));
+export async function fetchBybitInstruments(
+  query:(url:string)=>Promise<any>=json
+):Promise<Asset[]>{
+  const results:Asset[]=[];
+  for(const category of ['spot','linear'] as const){
+    const visited=new Set<string>();
+    let cursor='';
+    for(let page=0;page<60;page++){
+      const url='https://api.bybit.com/v5/market/instruments-info?category='+category+
+        '&limit=1000'+(cursor?'&cursor='+encodeURIComponent(cursor):'');
+      const response=await query(url);
+      if(response.retCode!==0||!Array.isArray(response.result?.list))
+        throw Error('Bybit returned an invalid '+category+' instrument page');
+      for(const item of response.result.list){
+        if(item.status&&item.status!=='Trading')continue;
+        results.push(mk(item.symbol,item.baseCoin,item.quoteCoin,'Bybit',category==='spot'?'spot':'swap'));
+      }
+      const next=String(response.result.nextPageCursor||'');
+      if(!next){cursor='';break;}
+      if(visited.has(next))throw Error('Bybit pagination loop; refusing incomplete catalog');
+      visited.add(next);
+      cursor=next;
+      if(page===59)throw Error('Bybit instrument catalog exceeds safe pagination limit');
     }
-  });
-  if (!out.length) throw new Error('Instruments blocked or unavailable');
-  return out;
+  }
+  return [...new Map(results.map(a=>[a.marketType+'|'+a.symbol,a])).values()];
+}
+async function bybit(): Promise<Asset[]> {
+  const instruments=await fetchBybitInstruments();
+  if(!instruments.length)throw Error('Instruments blocked or unavailable');
+  return instruments;
 }
 async function hyperliquidInfo(type: string): Promise<any> {
   const response = await fetch('https://api.hyperliquid.xyz/info', {

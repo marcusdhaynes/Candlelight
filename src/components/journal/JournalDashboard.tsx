@@ -563,7 +563,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
             </div>
 
             <div className="flex justify-between text-[10px] font-mono text-[#848e9c] pt-2 border-t border-[#232836]">
-              <span>Paper baseline: {'$'}{displayStats.startingBalance.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
+              <span>Journal opening balance: {'$'}{displayStats.startingBalance.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
               <span className="text-[#00ffa3] font-bold">
                 {displayStats.startingBalance>0?((displayStats.totalNetReturn/displayStats.startingBalance)*100).toFixed(2)+'%':'N/A'} Return
               </span>

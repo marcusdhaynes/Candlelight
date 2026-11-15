@@ -31,9 +31,11 @@ export function isJournalRecoveryBlocked():boolean{
 export function preserveJournalBackup(raw:string):boolean{
   try{
     const existing=localStorage.getItem(JOURNAL_BACKUP_KEY);
-    if(!existing)localStorage.setItem(JOURNAL_BACKUP_KEY,raw);
-    else if(existing!==raw)localStorage.setItem(JOURNAL_BACKUP_KEY+'-'+Date.now(),raw);
-    return localStorage.getItem(JOURNAL_BACKUP_KEY)!==null;
+    if(existing!==raw){
+      if(existing!==null)localStorage.setItem(JOURNAL_BACKUP_KEY+'-archive-'+Date.now()+'-'+Math.random().toString(36).slice(2),existing);
+      localStorage.setItem(JOURNAL_BACKUP_KEY,raw);
+    }
+    return localStorage.getItem(JOURNAL_BACKUP_KEY)===raw;
   }catch{return false;}
 }
 export function loadJournalTrades():JournalTrade[]{

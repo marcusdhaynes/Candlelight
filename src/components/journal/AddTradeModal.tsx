@@ -177,7 +177,16 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
     }
 
     const computedStatus:JournalStatus=exit===undefined?'OPEN':netReturn>0?'WIN':netReturn<0?'LOSS':'BE';
+    const editingExecutions=!!tradeToEdit?.executions?.length;
+    if(editingExecutions && (entry!==tradeToEdit!.entryPrice ||
+      exit!==tradeToEdit!.exitPrice || qty!==tradeToEdit!.size || side!==tradeToEdit!.side)){
+      setValidationError('Execution-backed trade prices, size and side are locked here. Edit notes or tags without altering the imported fills.');
+      return;
+    }
+    const originalNet=editingExecutions?tradeToEdit!.netReturn:netReturn;
+    const originalNetPct=editingExecutions?tradeToEdit!.netReturnPercent:netReturnPct;
     const tradeData: JournalTrade = {
+      ...(tradeToEdit||{}),
       id: tradeToEdit ? tradeToEdit.id : `tr-${Date.now()}`,
       symbol: symbol.startsWith('#') ? symbol : `#${symbol}`,
       side,
@@ -188,8 +197,8 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       exitPrice: exit,
       size: qty,
       cost: Number(cost.toFixed(2)),
-      netReturn: Number(netReturn.toFixed(2)),
-      netReturnPercent: Number(netReturnPct.toFixed(2)),
+      netReturn: Number(originalNet.toFixed(2)),
+      netReturnPercent: Number(originalNetPct.toFixed(2)),
       setups: selectedSetups,
       mistakes: selectedMistakes,
       efficiency: tradeToEdit?.efficiency ?? 0, // Unknown until explicitly measured; never manufacture quality scores.
