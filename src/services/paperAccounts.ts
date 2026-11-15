@@ -1,5 +1,6 @@
 import type {ConditionalOrder} from '../types/conditionalOrders';
 import {withOrderReservations} from './paperOrders';
+import {ruleCanActivate} from './conditionalSafety';
 import {
   emptyPaperPortfolio,normalizePaperSettings,validatePaperSettings,
   type PaperPortfolio,type PaperSettings,
@@ -32,7 +33,7 @@ export function loadPaperAccounts():PaperAccountsState{
             const settings=normalizePaperSettings(entry.portfolio.settings);
             validatePaperSettings(settings);
             return {...entry,portfolio:withOrderReservations({...entry.portfolio,settings}),
-              orders:Array.isArray(entry.orders)?entry.orders:[]};
+              orders:Array.isArray(entry.orders)?entry.orders.map(o=>!ruleCanActivate(o)?{...o,status:'paused' as const}:o):[]};
           });
         if(accounts.length)return {accounts,activeId:accounts.some(a=>a.id===raw.activeId)?
           raw.activeId:accounts[0].id};

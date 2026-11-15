@@ -170,10 +170,10 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
   const handleAddCondition = () => {
     const newCond: SingleCondition = {
       id: `cond-${Date.now()}`,
-      dependencyType: 'indicator',
-      dependencyLabel: 'RSI (14) Momentum',
+      dependencyType: 'price',
+      dependencyLabel: `${activeAsset.symbol} Price Level`,
       operator: 'greater_than',
-      thresholdValue: 55,
+      thresholdValue: activeAsset.price,
     };
     setConditions([...conditions, newCond]);
   };
@@ -234,7 +234,9 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
   const buildOrderObject = (): ConditionalOrder => {
     return {
       id: orderToEdit ? orderToEdit.id : `cond-ord-${Date.now()}`,
-      symbol: activeAsset.symbol,
+      symbol: orderToEdit?.symbol || activeAsset.symbol,
+      exchange: orderToEdit ? orderToEdit.exchange : (activeAsset.source || activeAsset.exchange),
+      marketType: orderToEdit ? orderToEdit.marketType : activeAsset.marketType,
       title: title || `Conditional ${action.replace('_', ' ').toUpperCase()} on ${activeAsset.symbol}`,
       conditionLogic: logicType,
       conditions,
@@ -250,7 +252,7 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
         reducePercent: action === 'reduce_position' ? reducePercent : undefined,
         increasePercent: action === 'increase_position' ? increasePercent : undefined,
       },
-      status: 'active',
+      status: orderToEdit?.status || 'active',
       createdAt: orderToEdit ? orderToEdit.createdAt : Date.now(),
       triggerCount: orderToEdit ? orderToEdit.triggerCount : 0,
       maxTriggers: logicType === 'WHENEVER' ? 9999 : 1,
@@ -262,7 +264,7 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
             label: initialDependency.label,
             price: initialDependency.price,
           }
-        : undefined,
+        : orderToEdit?.sourceDependency,
     };
   };
 
@@ -467,11 +469,11 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
                       >
                         <option value="drawing">📐 Drawing (Trendline / Zone)</option>
                         <option value="alert">🔔 Alert Event</option>
-                        <option value="indicator">📊 Technical Indicator (RSI/SMA)</option>
+                        <option value="indicator" disabled title="Not implemented">📊 Technical Indicator (RSI/SMA)</option>
                         <option value="price">💲 Exact Price Level</option>
                         <option value="position">💼 Position PnL / Equity</option>
-                        <option value="volume">🌊 Volume Surge</option>
-                        <option value="orderbook">📖 Order Book Imbalance</option>
+                        <option value="volume" disabled title="Not implemented">🌊 Volume Surge</option>
+                        <option value="orderbook" disabled title="Not implemented">📖 Order Book Imbalance</option>
                       </select>
                     </div>
 

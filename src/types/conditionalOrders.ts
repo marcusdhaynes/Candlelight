@@ -1,4 +1,4 @@
-import { Drawing, DetailedAlert, Timeframe } from '../types';
+import { Drawing, DetailedAlert, Timeframe, Asset } from '../types';
 
 export type ConditionLogicType = 'IF' | 'IF (AND)' | 'IF (OR)' | 'WHENEVER';
 
@@ -61,6 +61,8 @@ export interface OrderExecutionDetails {
 export interface ConditionalOrder {
   id: string;
   symbol: string;
+  exchange?: string;
+  marketType?: Asset['marketType'];
   title: string;
   conditionLogic: ConditionLogicType;
   conditions: SingleCondition[];

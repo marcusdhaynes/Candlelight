@@ -4,7 +4,7 @@ import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
 import {createCoinbaseDepthState,acceptCoinbaseLevel2,coinbaseDepthRows} from './orderDepth';
 
 export type PublicCallbacks = {
-  onPriceUpdate: (price: number, change?: number, changePct?: number) => void;
+  onPriceUpdate: (price: number, change?: number, changePct?: number, origin?: 'stream'|'snapshot') => void;
   onCandleTick: (candle: OHLCV, isClosed: boolean) => void;
   onOrderBook: (book: { bids: any[]; asks: any[] }) => void;
   onTrade: (trade: TradeItem) => void;
@@ -276,7 +276,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       const q = await fetchPublicQuote(a);
       if (stopped) return;
       if (q && typeof q.price === 'number') {
-        cb.onPriceUpdate(q.price, q.change24h, q.changePercent24h);
+        cb.onPriceUpdate(q.price, q.change24h, q.changePercent24h,'snapshot');
         cb.onStatusChange({ connected: true, provider: 'DEX public snapshot · not tick data', latencyMs: 0 });
       } else cb.onStatusChange({ connected: false, provider: 'DEX snapshot unavailable', latencyMs: 0 });
     };
@@ -291,7 +291,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   let stopped = false, ws: WebSocket | null = null, reconnect: ReturnType<typeof setTimeout> | null = null;
   let lastTick = 0, lastBroadcast = 0, lastOpen = Date.now(), retry = 0;
   let candle: OHLCV | null = null;
-  let pending: { price: number; size: number; side: 'buy'|'sell' } | null = null;
+  let pending: { price: number; size: number; side: 'buy'|'sell'; origin:'stream'|'snapshot' } | null = null;
   const coinbaseDepth=createCoinbaseDepthState();
   let bookDirty=false,lastBookBroadcast=0;
   const status = (connected: boolean, via: string) => {
@@ -300,7 +300,12 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   };
   const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true) => {
     if (stopped || !Number.isFinite(price) || price <= 0) return;
-    lastTick = Date.now();
+    if(live)lastTick=Date.now();
+    if(!live){
+      // A REST quote is not an observed trade and must not create OHLCV.
+      pending={price,size:0,side,origin:'snapshot'};
+      return;
+    }
     const bucket = candleBucketStart(lastTick/1000,timeframe);
     if (!candle || bucket > candle.time) {
       if (candle) cb.onCandleTick({ ...candle }, true);
@@ -309,7 +314,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       candle.high = Math.max(candle.high,price); candle.low = Math.min(candle.low,price);
       candle.close = price; candle.volume += Math.max(size,0);
     }
-    pending = {price,size,side};
+    pending = {price,size,side,origin:'stream'};
     if (live && Date.now() - lastBroadcast > 5000) {
       status(true,'live WebSocket');
       lastBroadcast = Date.now();
@@ -322,9 +327,10 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       lastBookBroadcast=Date.now();
       cb.onOrderBook(coinbaseDepthRows(coinbaseDepth));
     }
-    if (!pending || !candle) return;
+    if (!pending) return;
     const t = pending; pending = null;
-    cb.onPriceUpdate(t.price);
+    cb.onPriceUpdate(t.price,undefined,undefined,t.origin);
+    if(t.origin!=='stream'||!candle)return;
     cb.onCandleTick({ ...candle }, false);
     if (t.size > 0) cb.onTrade({ id: String(Date.now()), price: t.price, size: t.size, side: t.side, time: Date.now() });
   }, 100);

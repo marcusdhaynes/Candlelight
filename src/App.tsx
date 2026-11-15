@@ -53,6 +53,7 @@ import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
+import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
@@ -869,12 +870,12 @@ export default function App() {
 
     // 4. Subscribe to Real Market Data (Binance WebSocket for crypto, high-precision feed for others)
     const unsubscribe = subscribeRealMarketData(activeAsset, activeTimeframe, {
-      onPriceUpdate: (newPrice, change24h, changePercent24h) => {
+      onPriceUpdate: (newPrice, change24h, changePercent24h, origin='snapshot') => {
         if (isCancelled) return;
 
         const now = Date.now();
         // Only verified venue ticks may trigger the price-alert evaluator.
-        processPriceAlertTick(activeAsset,newPrice,now);
+        if(origin==='stream')processPriceAlertTick(activeAsset,newPrice,now);
         setActiveAsset((prev) => {
           const priceDelta = newPrice - prev.price;
           if (priceDelta !== 0 && now - lastFlashTimeRef.current > 350) {
@@ -900,7 +901,7 @@ export default function App() {
             changePercent24h: updatedChangePct,
             high24h: Math.max(prev.high24h, newPrice),
             low24h: prev.low24h > 0 ? Math.min(prev.low24h, newPrice) : newPrice,
-            quoteStatus: activeAsset.pairAddress ? 'delayed' : 'live',
+            quoteStatus: origin==='stream'&&!activeAsset.pairAddress ? 'live' : 'delayed',
             quoteUpdatedAt: now,
           };
         });
@@ -918,7 +919,7 @@ export default function App() {
                     price: newPrice,
                     high24h: Math.max(a.high24h, newPrice),
                     low24h: a.low24h > 0 ? Math.min(a.low24h, newPrice) : newPrice,
-                    quoteStatus: activeAsset.pairAddress ? 'delayed' : 'live',
+                    quoteStatus: origin==='stream'&&!activeAsset.pairAddress ? 'live' : 'delayed',
                     quoteUpdatedAt: now,
                   }
                 : a
@@ -927,7 +928,8 @@ export default function App() {
 
           // Value ONLY the selected symbol at its own observed real-market tick.
           const quote={...activeAsset,price:newPrice,quoteUpdatedAt:now,
-            quoteStatus:activeAsset.pairAddress?'delayed' as const:'live' as const};
+            quoteStatus:origin==='stream'&&!activeAsset.pairAddress?'live' as const:'delayed' as const};
+          if(origin!=='stream')return;
           setPaperAccounts(prev=>{
             let changed=false;
             const accounts=prev.accounts.map(record=>{
@@ -1034,18 +1036,20 @@ export default function App() {
   }, []);
 
   const handleSaveConditionalOrder = useCallback((order: ConditionalOrder) => {
+    const permitted=ruleCanActivate(order);
+    const safeOrder=permitted?order:{...order,status:'paused' as const};
     setConditionalOrders((prev) => {
       const idx = prev.findIndex((o) => o.id === order.id);
       if (idx >= 0) {
         const next = [...prev];
-        next[idx] = order;
+        next[idx] = safeOrder;
         return next;
       }
-      return [order, ...prev];
+      return [safeOrder, ...prev];
     });
     setActiveNotification({
       id: String(Date.now()),
-      message: `Conditional order rule "${order.title}" saved.`,
+      message: permitted ? `Conditional order "${order.title}" saved.` : `Rule "${order.title}" saved paused (unsupported condition or missing market identity).`,
       type: 'info',
     });
   }, []);
@@ -1055,7 +1059,7 @@ export default function App() {
       prev.map((o) => {
         if (o.id !== id) return o;
         const newStatus = o.status === 'active' ? 'paused' : 'active';
-        return { ...o, status: newStatus };
+        return { ...o, status: newStatus==='active'&&!ruleCanActivate(o)?'paused':newStatus };
       })
     );
   }, []);
@@ -1067,7 +1071,7 @@ export default function App() {
   // Pure execution permits multiple triggered rules to apply sequentially to
   // one current portfolio without replacing earlier fills in the same tick.
   const applyRuleToPortfolio = useCallback((order:ConditionalOrder,base:PaperPortfolio):PaperPortfolio => {
-    if(order.symbol!==activeAsset.symbol||!isFreshPaperQuote(activeAsset))
+    if(!ruleMatchesMarket(order,activeAsset)||!ruleCanActivate(order)||!isFreshPaperQuote(activeAsset))
       throw new Error('Conditional order needs a fresh quote from the selected market.');
     let next:PaperPortfolio=base;
         const side=order.action==='enter_short'?'Short':'Long';
@@ -1124,19 +1128,15 @@ export default function App() {
   },[activeAsset]);
 
   const handleTestTriggerConditionalOrder = useCallback((order:ConditionalOrder) => {
+    // Explicit dry-run: never write the projected portfolio, fills or trigger count.
     try {
-      applyRuleToPortfolio(order,paperPortfolio);
-      setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>{
-        try {
-          const next=applyRuleToPortfolio(order,record.portfolio);
-          const updated=record.orders.map(o=>o.id===order.id?{...o,
-            triggerCount:o.triggerCount+1,lastTriggeredAt:Date.now(),
-            status:o.conditionLogic==='WHENEVER'?'active' as const:'triggered' as const}:o);
-          return {...record,portfolio:next,orders:updated};
-        }catch{return record;}
-      }));
+      const projected=applyRuleToPortfolio(order,paperPortfolio);
+      const delta=projected.account.balance-paperPortfolio.account.balance;
+      const fills=projected.fills.length-paperPortfolio.fills.length;
+      setActiveNotification({id:String(Date.now()),type:'info',
+        message:`Simulation only · ${fills} hypothetical fills · balance change ${delta.toFixed(2)} ${paperPortfolio.settings.currency}. No trades were saved.`});
       setPaperError('');
-    }catch(e){setPaperError(e instanceof Error?e.message:'Conditional paper action rejected');}
+    }catch(e){setPaperError(e instanceof Error?e.message:'Simulation unavailable');}
   },[applyRuleToPortfolio,paperPortfolio]);
 
   // Automated Conditional Orders Evaluation Engine on Price Ticks
@@ -1147,7 +1147,7 @@ export default function App() {
     const priorPrice=previousRulePrices.current[ruleMarket];
     previousRulePrices.current[ruleMarket]=curPrice;
     const activeRules = conditionalOrders.filter(
-      (o) => o.status === 'active' && o.symbol === activeAsset.symbol &&
+      (o) => o.status === 'active' && ruleMatchesMarket(o,activeAsset) && ruleCanActivate(o) &&
         o.triggerCount < (o.maxTriggers||9999)
     );
 
