@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import type {Asset} from '../types';
+import {marketIdentity,resolveWindowAsset,resolveWatchlistEntry} from './marketIdentity';
+const a={symbol:'BTCUSD',source:'Kraken',exchange:'Kraken',marketType:'spot'} as Asset;
+const b={...a,source:'Coinbase',exchange:'Coinbase'};
+assert.notEqual(marketIdentity(a),marketIdentity(b));
+assert.equal(resolveWatchlistEntry(marketIdentity(b),[a,b]),b);
+assert.equal(resolveWatchlistEntry('BTCUSD',[a,b]),undefined);
+assert.equal(resolveWatchlistEntry('BTCUSD',[a]),a);
+assert.equal(resolveWindowAsset({id:'w',symbol:'BTCUSD',timeframe:'1m',source:'Coinbase',marketType:'spot'},[a,b]),b);
+assert.equal(resolveWindowAsset({id:'w',symbol:'BTCUSD',timeframe:'1m'},[a,b]),undefined);
+console.log('Market identity tests passed.');

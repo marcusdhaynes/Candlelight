@@ -1285,6 +1285,8 @@ export default function App() {
     } catch { /* persistence is optional */ }
     setMarketStatus({ connected: false, provider: 'Connecting to ' + (selected.source || selected.exchange), latencyMs: 0 });
     setActiveAsset(selected);
+    setWindowStates(prev=>prev.map((v,i)=>i===activeWindowIndex?
+      {...v,symbol:selected.symbol,source:selected.source||selected.exchange,marketType:selected.marketType}:v));
   };
 
   // Toggle Fullscreen

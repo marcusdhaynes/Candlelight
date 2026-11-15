@@ -17,7 +17,9 @@ import {
   LayoutBox,
 } from '../../types/layout';
 import { MainChart, MainChartRef } from '../MainChart';
-import { fetchHistoricalData } from '../../services/dataFeed';
+import { fetchHistoricalData,subscribeRealMarketData } from '../../services/dataFeed';
+import {combineHistoryWithLive,mergeLiveCandle} from '../../services/chartCandles';
+import {chartIdentity,marketIdentity,resolveWindowAsset} from '../../services/marketIdentity';
 import { Maximize2, Minimize2, ChevronDown, Check, RotateCcw, Columns } from 'lucide-react';
 
 interface MultiChartWorkspaceProps {
@@ -289,6 +291,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
           newStates.push({
             id: `win-${i}`,
             symbol: syncSettings.symbol ? activeAsset.symbol : assetChoice.symbol,
+            source:syncSettings.symbol?(activeAsset.source||activeAsset.exchange):(assetChoice.source||assetChoice.exchange),
+            marketType:syncSettings.symbol?activeAsset.marketType:assetChoice.marketType,
             timeframe: syncSettings.interval ? activeTimeframe : tfChoice,
             chartType: chartType,
           });
@@ -300,9 +304,9 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
     // Handle Symbol Sync: When syncSettings.symbol is on and activeAsset changes, propagate to all windows
     useEffect(() => {
       if (syncSettings.symbol && windowStates.length > 0) {
-        const isOutdated = windowStates.some((w) => w.symbol !== activeAsset.symbol);
+        const isOutdated = windowStates.some((w) => w.symbol !== activeAsset.symbol || w.source!==(activeAsset.source||activeAsset.exchange)||w.marketType!==activeAsset.marketType);
         if (isOutdated) {
-          const updated = windowStates.map((w) => ({ ...w, symbol: activeAsset.symbol }));
+          const updated = windowStates.map((w) => ({ ...w, symbol: activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType }));
           onUpdateWindowStates(updated);
         }
       }
@@ -319,31 +323,29 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       }
     }, [syncSettings.interval, activeTimeframe, onUpdateWindowStates]);
 
-    // Fetch candles for secondary windows if symbol/timeframe differs from primary
-    useEffect(() => {
-      if (template.count <= 1) return;
-
-      windowStates.slice(0, template.count).forEach((win, index) => {
-        const isPrimary =
-          index === 0 ||
-          (win.symbol === activeAsset.symbol && win.timeframe === activeTimeframe);
-
-        if (!isPrimary) {
-          const key = `${win.symbol}_${win.timeframe}`;
-          if (!windowCandles[key] && !inFlightRequestsRef.current.has(key)) {
-            inFlightRequestsRef.current.add(key);
-            const assetObj = allAssets.find((a) => a.symbol === win.symbol) || activeAsset;
-            fetchHistoricalData(assetObj, win.timeframe)
-              .then((data) => {
-                setWindowCandles((prev) => ({ ...prev, [key]: data }));
-              })
-              .finally(() => {
-                inFlightRequestsRef.current.delete(key);
-              });
-          }
-        }
-      });
-    }, [template.count, windowStates, activeAsset.symbol, activeTimeframe, allAssets]);
+    const paneSignature=windowStates.slice(0,template.count).map(win=>
+      [win.symbol,win.source||'',win.marketType||'',win.timeframe].join('|')).join('~');
+    useEffect(()=>{
+      if(template.count<=1)return;
+      let closed=false;
+      const stops:Array<()=>void>=[];
+      const seen=new Set<string>();
+      for(const win of windowStates.slice(0,template.count)){
+        const asset=resolveWindowAsset(win,allAssets,activeAsset);
+        if(!asset)continue;
+        const key=chartIdentity(asset,win.timeframe);
+        if(seen.has(key)||(marketIdentity(asset)===marketIdentity(activeAsset)&&win.timeframe===activeTimeframe))continue;
+        seen.add(key);
+        void fetchHistoricalData(asset,win.timeframe).then(history=>{
+          if(!closed)setWindowCandles(prev=>({...prev,[key]:combineHistoryWithLive(history,prev[key]||[])}));
+        }).catch(()=>{if(!closed)setWindowCandles(prev=>({...prev,[key]:prev[key]||[]}));});
+        stops.push(subscribeRealMarketData(asset,win.timeframe,{
+          onPriceUpdate:()=>{},onOrderBook:()=>{},onTrade:()=>{},onStatusChange:()=>{},
+          onCandleTick:c=>{if(!closed)setWindowCandles(prev=>({...prev,[key]:mergeLiveCandle(prev[key]||[],c)}));},
+        }));
+      }
+      return ()=>{closed=true;stops.forEach(stop=>stop());};
+    },[template.count,paneSignature,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,activeTimeframe]);
 
     // Mouse Drag Listeners for Resizing Dividers and Custom Grid
     useEffect(() => {
@@ -503,13 +505,12 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
         timeframe: activeTimeframe,
       };
 
-      const winAsset = allAssets.find((a) => a.symbol === win.symbol) || activeAsset;
-      const winTimeframe = win.timeframe || activeTimeframe;
-      const key = `${win.symbol}_${win.timeframe}`;
-      const isPrimary =
-        winIndex === 0 ||
-        (win.symbol === activeAsset.symbol && win.timeframe === activeTimeframe);
-      const currentCandles = isPrimary ? primaryCandles : windowCandles[key] || primaryCandles;
+      const winAsset=template.count===1?activeAsset:resolveWindowAsset(win,allAssets,activeAsset);
+      if(!winAsset)return <div className="flex items-center justify-center p-5 text-xs text-[#9ca6b9] h-full">Ambiguous or missing market; reselect the chart's exchange.</div>;
+      const winTimeframe=template.count===1?activeTimeframe:(win.timeframe||activeTimeframe);
+      const key=chartIdentity(winAsset,winTimeframe);
+      const isPrimary=marketIdentity(winAsset)===marketIdentity(activeAsset)&&winTimeframe===activeTimeframe;
+      const currentCandles=isPrimary?primaryCandles:windowCandles[key]||[];
       const isActive = activeWindowIndex === winIndex;
       const isMaximized = maximizedPaneIndex === winIndex;
 
@@ -518,6 +519,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
           key={winIndex}
           onClick={() => {
             setActiveWindowIndex(winIndex);
+            if(!win.source)onUpdateWindowStates(windowStates.map((v,i)=>i===winIndex?
+              {...v,source:winAsset.source||winAsset.exchange,marketType:winAsset.marketType}:v));
             if (!syncSettings.symbol) setActiveAsset(winAsset);
             if (!syncSettings.interval) setActiveTimeframe(winTimeframe);
           }}

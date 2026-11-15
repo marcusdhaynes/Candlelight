@@ -1,4 +1,4 @@
-import { ChartType, Timeframe } from '../types';
+import { Asset, ChartType, Timeframe } from '../types';
 
 export interface LayoutBox {
   x: number; // 0 to 100 percentage
@@ -34,6 +34,8 @@ export interface LayoutSyncSettings {
 export interface ChartWindowState {
   id: string;
   symbol: string;
+  source?: string;
+  marketType?: Asset['marketType'];
   timeframe: Timeframe;
   chartType?: ChartType;
   indicators?: any;
