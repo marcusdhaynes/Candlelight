@@ -45,12 +45,14 @@ interface TradeJournalModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentSymbol?: string;
+  startingBalance?: number;
 }
 
 export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   isOpen,
   onClose,
   currentSymbol = '#BTCUSDT',
+  startingBalance = 0,
 }) => {
   // Default to 'trades' tab to immediately display the grid view requested in image.png
   const [activeTab, setActiveTab] = useState<JournalTab>('trades');
@@ -58,7 +60,9 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
     const saved = localStorage.getItem('tradingview_journal_trades');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const restored=JSON.parse(saved);
+        return Array.isArray(restored)?restored.filter(t=>t&&typeof t.id==='string'&&
+          typeof t.openDate==='string'&&Number.isFinite(t.netReturn)) : [];
       } catch (e) {
         console.error('Failed to parse saved journal trades', e);
       }
@@ -71,7 +75,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   const [editingTrade, setEditingTrade] = useState<JournalTrade | null>(null);
   const [isMaximized, setIsMaximized] = useState(true);
   const [calendarYear, setCalendarYear] = useState(() => new Date().getFullYear());
-  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth());
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().getMonth()+1);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<string | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
@@ -407,7 +411,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   if (!isOpen) return null;
 
   // Recalculate stats dynamically
-  const stats = calculateJournalStats(trades);
+  const stats = calculateJournalStats(trades,startingBalance);
   const waveScore = calculateWaveScore(trades);
 
   const handleAddTrade = (newTrade: JournalTrade) => {
@@ -845,9 +849,10 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
 
               {/* Sync / Refresh Icon */}
               <button
-                onClick={() => {}}
-                className="w-[24px] h-[24px] rounded-md flex items-center justify-center text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#1e222d] transition-colors cursor-pointer"
-                title="Sync Broker Data"
+                disabled
+                aria-label="Broker sync unavailable: no authenticated broker connected"
+                className="w-[24px] h-[24px] rounded-md flex items-center justify-center text-[#596070] cursor-not-allowed"
+                title="Broker sync unavailable: no authenticated broker connected"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>

@@ -56,8 +56,8 @@ export const JournalCalendar: React.FC<JournalCalendarProps> = ({
   const isRounded = layoutSettings?.roundedCorners !== false;
   const cornerClass = isRounded ? 'rounded-xl' : 'rounded-none';
   const smCornerClass = isRounded ? 'rounded' : 'rounded-none';
-  const [internalYear, setInternalYear] = useState(2025);
-  const [internalMonth, setInternalMonth] = useState(4); // April 2025
+  const [internalYear, setInternalYear] = useState(() => new Date().getFullYear());
+  const [internalMonth, setInternalMonth] = useState(() => new Date().getMonth()+1);
 
   const calendarYear = propYear ?? internalYear;
   const calendarMonth = propMonth ?? internalMonth;
@@ -135,9 +135,10 @@ export const JournalCalendar: React.FC<JournalCalendarProps> = ({
   };
 
   const handleGoToday = () => {
-    setInternalYear(2025);
-    setInternalMonth(4);
-    onMonthChange?.(2025, 4);
+    const today=new Date(),year=today.getFullYear(),month=today.getMonth()+1;
+    setInternalYear(year);
+    setInternalMonth(month);
+    onMonthChange?.(year,month);
   };
 
   const handleDaySelect = (day: CalendarDaySummary) => {

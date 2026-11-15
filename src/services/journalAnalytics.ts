@@ -20,6 +20,7 @@ export interface JournalStats {
   dayStreak: { current: number; isWin: boolean; maxWin: number; maxLoss: number };
   tradeStreak: { current: number; isWin: boolean; maxWin: number; maxLoss: number };
   maxDrawdown: number; // %
+  startingBalance: number;
   currentBalance: number;
   highestBalance: number;
   equityCurve: Array<{ date: string; balance: number; netReturn: number }>;
@@ -57,7 +58,8 @@ export interface CalendarWeekSummary {
   totalTrades: number;
 }
 
-export function calculateJournalStats(trades: JournalTrade[], baseBalance = 25000): JournalStats {
+export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): JournalStats {
+  const baseline=Number.isFinite(baseBalance)&&baseBalance>=0?baseBalance:0;
   const closed = trades.filter((t) => t.status !== 'OPEN');
   const openTrades = trades.filter((t) => t.status === 'OPEN').length;
   const wins = closed.filter((t) => t.status === 'WIN');
@@ -71,7 +73,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
 
   const winRate = totalClosed > 0 ? Number(((winTrades / totalClosed) * 100).toFixed(2)) : 0;
 
-  const totalNetReturn = Number(trades.reduce((acc, t) => acc + t.netReturn, 0).toFixed(2));
+  const totalNetReturn = Number(closed.reduce((acc, t) => acc + t.netReturn, 0).toFixed(2));
   const avgReturn = totalClosed > 0 ? Number((totalNetReturn / totalClosed).toFixed(2)) : 0;
 
   const grossProfit = wins.reduce((acc, t) => acc + Math.max(0, t.netReturn), 0);
@@ -88,10 +90,13 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
       : 0;
 
   // Compute Streaks & Drawdown from chronological trade order
-  const sorted = [...trades].sort((a, b) => new Date(a.openDate).getTime() - new Date(b.openDate).getTime());
+  // Realized-equity curve uses exit chronology; open positions are not settled P&L.
+  const sorted = [...closed].sort((a,b)=>
+    new Date((a.closeDate||a.openDate).replace(' ','T')).getTime() -
+    new Date((b.closeDate||b.openDate).replace(' ','T')).getTime());
 
-  let balance = baseBalance;
-  let highestBalance = baseBalance;
+  let balance = baseline;
+  let highestBalance = baseline;
   let maxDrawdown = 0;
   const equityCurve: Array<{ date: string; balance: number; netReturn: number }> = [
     { date: sorted[0] ? sorted[0].openDate.slice(5, 10) : 'Start', balance, netReturn: 0 },
@@ -109,7 +114,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
     if (dd > maxDrawdown) maxDrawdown = dd;
 
     equityCurve.push({
-      date: t.openDate.slice(5, 10),
+      date: (t.closeDate||t.openDate).slice(5, 10),
       balance,
       netReturn: t.netReturn,
     });
@@ -136,7 +141,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
   // Daily Streak calculation
   const dayMap: Record<string, number> = {};
   for (const t of sorted) {
-    const day = t.openDate.slice(0, 10);
+    const day = (t.closeDate||t.openDate).slice(0, 10);
     dayMap[day] = (dayMap[day] || 0) + t.netReturn;
   }
   const daysList = Object.keys(dayMap).sort();
@@ -184,16 +189,17 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
     dayStreak: {
       current: currentDayStreak,
       isWin: currentDayIsWin,
-      maxWin: maxDayWin || 4,
-      maxLoss: maxDayLoss || 3,
+      maxWin: maxDayWin,
+      maxLoss: maxDayLoss,
     },
     tradeStreak: {
       current: currentTradeStreak,
       isWin: currentTradeStreakIsWin,
-      maxWin: maxTradeWinStreak || 4,
-      maxLoss: maxTradeLossStreak || 3,
+      maxWin: maxTradeWinStreak,
+      maxLoss: maxTradeLossStreak,
     },
     maxDrawdown: Number(maxDrawdown.toFixed(2)),
+    startingBalance:baseline,
     currentBalance: balance,
     highestBalance,
     equityCurve,
@@ -202,26 +208,29 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 2500
 
 export function calculateWaveScore(trades: JournalTrade[]): WaveScoreData {
   if (trades.length === 0) {
-    return { overall: 50, entry: 50, risk: 50, exit: 50, stability: 50, tempo: 50 };
+    return { overall: 0, entry: 0, risk: 0, exit: 0, stability: 0, tempo: 0 };
   }
 
   const closed = trades.filter((t) => t.status !== 'OPEN');
   const withSL = trades.filter((t) => t.stopLoss !== undefined && t.stopLoss > 0).length;
   const riskScore = Math.min(100, Math.round((withSL / Math.max(1, trades.length)) * 90 + 10));
 
-  const winRate = closed.length > 0 ? (closed.filter((t) => t.status === 'WIN').length / closed.length) * 100 : 50;
-  const entryScore = Math.min(98, Math.max(40, Math.round(winRate * 0.9 + 15)));
+  const winRate = closed.length > 0 ? (closed.filter((t) => t.status === 'WIN').length / closed.length) * 100 : 0;
+  const entryScore = closed.length ? Math.min(100,Math.max(0,Math.round(winRate))) : 0;
 
-  const avgEfficiency =
-    trades.reduce((acc, t) => acc + (t.efficiency || 70), 0) / Math.max(1, trades.length);
-  const exitScore = Math.min(95, Math.max(35, Math.round(avgEfficiency)));
+  const observedEfficiency=closed.filter(t=>Number.isFinite(t.efficiency)&&t.efficiency>0);
+  const exitScore=observedEfficiency.length
+    ? Math.max(0,Math.min(100,Math.round(observedEfficiency.reduce((n,t)=>n+t.efficiency,0)/observedEfficiency.length)))
+    : 0;
 
   const withoutMistakes = trades.filter((t) => !t.mistakes || t.mistakes.length === 0).length;
   const stabilityScore = Math.min(95, Math.max(30, Math.round((withoutMistakes / Math.max(1, trades.length)) * 100)));
 
-  const tempoScore = 80;
-
-  const overall = Math.round((entryScore + riskScore + exitScore + stabilityScore + tempoScore) / 5);
+  // Tempo has no defensible measure until a strategy benchmark is defined.
+  const tempoScore = 0;
+  const measured=[entryScore,riskScore,stabilityScore];
+  if(observedEfficiency.length)measured.push(exitScore);
+  const overall = Math.round(measured.reduce((a,b)=>a+b,0)/measured.length);
 
   return {
     overall,
@@ -236,7 +245,7 @@ export function calculateWaveScore(trades: JournalTrade[]): WaveScoreData {
 export function getSetupsBreakdown(trades: JournalTrade[]): SetupMetric[] {
   const map: Record<string, { count: number; wins: number; netReturn: number }> = {};
 
-  for (const t of trades) {
+  for (const t of trades.filter(t=>t.status!=='OPEN')) {
     const list = t.setups && t.setups.length > 0 ? t.setups : ['UNTAGGED'];
     for (const s of list) {
       if (!map[s]) map[s] = { count: 0, wins: 0, netReturn: 0 };
@@ -302,7 +311,7 @@ export function getCalendarMonthData(
   // Map trades by day string: "YYYY-MM-DD"
   const dayTradesMap: Record<string, JournalTrade[]> = {};
   for (const t of trades) {
-    const dStr = t.openDate.slice(0, 10);
+    const dStr = (t.status==='OPEN'?t.openDate:(t.closeDate||t.openDate)).slice(0, 10);
     if (!dayTradesMap[dStr]) dayTradesMap[dStr] = [];
     dayTradesMap[dStr].push(t);
   }
@@ -316,7 +325,7 @@ export function getCalendarMonthData(
     const prevYear = month === 1 ? year - 1 : year;
     const dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
-    const netReturn = dayTrades.reduce((acc, t) => acc + t.netReturn, 0);
+    const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
     const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));
@@ -339,7 +348,7 @@ export function getCalendarMonthData(
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
-    const netReturn = dayTrades.reduce((acc, t) => acc + t.netReturn, 0);
+    const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
     const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));
@@ -365,7 +374,7 @@ export function getCalendarMonthData(
     const nextYear = month === 12 ? year + 1 : year;
     const dateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
-    const netReturn = dayTrades.reduce((acc, t) => acc + t.netReturn, 0);
+    const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
     const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));

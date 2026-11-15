@@ -1615,6 +1615,7 @@ export default function App() {
         isOpen={isTradeJournalOpen}
         onClose={() => setIsTradeJournalOpen(false)}
         currentSymbol={activeAsset.symbol}
+        startingBalance={paperPortfolio.settings.startingBalance}
       />
 
       <ChartPictureInPicture

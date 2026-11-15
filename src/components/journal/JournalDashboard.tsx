@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { JournalTrade, WaveScoreData } from '../../types';
-import { JournalStats, getCalendarMonthData, CalendarDaySummary } from '../../services/journalAnalytics';
+import { JournalStats, getCalendarMonthData, CalendarDaySummary, calculateJournalStats, calculateWaveScore } from '../../services/journalAnalytics';
 import { WaveScoreRadar } from './WaveScoreRadar';
 import { JournalLayoutSettings } from './JournalGridSettingsModal';
 import {
@@ -78,8 +78,8 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
     return 'p-3';
   };
   // Calendar month state for the calendar heatmap widget
-  const [internalYear, setInternalYear] = useState(2025);
-  const [internalMonth, setInternalMonth] = useState(4); // April 2025
+  const [internalYear, setInternalYear] = useState(() => new Date().getFullYear());
+  const [internalMonth, setInternalMonth] = useState(() => new Date().getMonth()+1);
   const calendarYear = propYear ?? internalYear;
   const calendarMonth = propMonth ?? internalMonth;
 
@@ -89,9 +89,26 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
 
   const activeDayDateStr = propSelectedDay !== undefined && propSelectedDay !== null ? propSelectedDay : selectedDayDateStr;
 
+  const visibleTrades=useMemo(()=>{
+    if(dateRange==='All Time')return trades;
+    const now=new Date();
+    const from=new Date(now);
+    if(dateRange==='This Month')from.setFullYear(now.getFullYear(),now.getMonth(),1);
+    else if(dateRange==='Last 30 Days')from.setDate(now.getDate()-29);
+    else if(dateRange==='Year to Date')from.setFullYear(now.getFullYear(),0,1);
+    from.setHours(0,0,0,0);
+    return trades.filter(t=>{
+      const date=new Date((t.closeDate||t.openDate).replace(' ','T'));
+      return Number.isFinite(date.getTime())&&date>=from&&date<=now;
+    });
+  },[trades,dateRange]);
+  const displayStats=useMemo(()=>dateRange==='All Time'?stats:
+    calculateJournalStats(visibleTrades,displayStats.startingBalance),[dateRange,stats,visibleTrades]);
+  const displayWaveScore=useMemo(()=>dateRange==='All Time'?waveScore:
+    calculateWaveScore(visibleTrades),[dateRange,waveScore,visibleTrades]);
   const monthData = useMemo(() => {
-    return getCalendarMonthData(trades, calendarYear, calendarMonth);
-  }, [trades, calendarYear, calendarMonth]);
+    return getCalendarMonthData(visibleTrades, calendarYear, calendarMonth);
+  }, [visibleTrades, calendarYear, calendarMonth]);
 
   const activeDayDetails = useMemo(() => {
     if (!activeDayDateStr) return null;
@@ -136,9 +153,10 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
   };
 
   const handleGoToday = () => {
-    setInternalYear(2025);
-    setInternalMonth(4);
-    onMonthChange?.(2025, 4);
+    const today=new Date(),year=today.getFullYear(),month=today.getMonth()+1;
+    setInternalYear(year);
+    setInternalMonth(month);
+    onMonthChange?.(year,month);
   };
 
   const handleDayClick = (day: CalendarDaySummary) => {
@@ -242,21 +260,21 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
           <div className="hidden md:flex items-center gap-2 ml-2 pl-2 border-l border-[#232836] font-mono text-[11px]">
             <div className="flex items-center gap-1">
               <span className="text-[#848e9c]">Net P&L:</span>
-              <span className={`font-bold ${stats.totalNetReturn >= 0 ? 'text-[#00ffa3]' : 'text-[#ff4a7d]'}`}>
-                {stats.totalNetReturn >= 0
-                  ? `+$${stats.totalNetReturn.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                  : `-$${Math.abs(stats.totalNetReturn).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+              <span className={`font-bold ${displayStats.totalNetReturn >= 0 ? 'text-[#00ffa3]' : 'text-[#ff4a7d]'}`}>
+                {displayStats.totalNetReturn >= 0
+                  ? `+$${displayStats.totalNetReturn.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                  : `-$${Math.abs(displayStats.totalNetReturn).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
               </span>
             </div>
             <span className="text-[#232836]">•</span>
             <div className="flex items-center gap-1">
               <span className="text-[#848e9c]">Win %:</span>
-              <span className="font-bold text-[#00e5ff]">{stats.winRate}%</span>
+              <span className="font-bold text-[#00e5ff]">{displayStats.winRate}%</span>
             </div>
             <span className="text-[#232836]">•</span>
             <div className="flex items-center gap-1">
               <span className="text-[#848e9c]">PF:</span>
-              <span className="font-bold text-[#00e5ff]">{stats.winLossRatio.toFixed(2)} :1</span>
+              <span className="font-bold text-[#00e5ff]">{displayStats.winLossRatio.toFixed(2)} :1</span>
             </div>
           </div>
         </div>
@@ -357,15 +375,15 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
               <div>
                 <div className="text-[11px] text-[#848e9c] font-medium tracking-tight">Trade Count</div>
                 <div className="text-2xl font-bold font-mono text-white mt-0.5 tracking-tight">
-                  {stats.totalTrades}
+                  {displayStats.totalTrades}
                 </div>
                 <div className="text-[10px] text-[#00ffa3] font-mono mt-0.5 font-semibold">
-                  +12 this week
+                  {trades.filter(t=>new Date(t.openDate.replace(' ','T')).getTime()>=Date.now()-7*86400000).length} in last 7 days
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1">
                 {renderSparkline(
-                  stats.equityCurve.slice(-14).map((p) => p.balance),
+                  displayStats.equityCurve.slice(-14).map((p) => p.balance),
                   '#00e5ff',
                   32,
                   110
@@ -379,10 +397,10 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
               <div className={`bg-[#171b26] border border-[#232836] ${cornerClass} p-3.5 flex flex-col justify-between shadow-sm h-full`}>
                 <div>
                   <div className="text-[11px] text-[#848e9c] font-medium tracking-tight">Win %</div>
-                  <div className="text-xl font-bold font-mono text-white mt-0.5">{stats.winRate}%</div>
+                  <div className="text-xl font-bold font-mono text-white mt-0.5">{displayStats.winRate}%</div>
                 </div>
                 <div className="flex justify-center mt-1">
-                  {renderWinrateArc(stats.winRate)}
+                  {renderWinrateArc(displayStats.winRate)}
                 </div>
               </div>
 
@@ -391,7 +409,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                 <div>
                   <div className="text-[11px] text-[#848e9c] font-medium tracking-tight">P/L Ratio</div>
                   <div className="text-xl font-bold font-mono text-white mt-0.5">
-                    {stats.winLossRatio.toFixed(2)} :1
+                    {displayStats.winLossRatio.toFixed(2)} :1
                   </div>
                 </div>
                 <div className="mt-2 space-y-1.5">
@@ -400,7 +418,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                       className="bg-[#00ffa3] h-full"
                       style={{
                         width: `${Math.round(
-                          (stats.avgWin / (stats.avgWin + (stats.avgLoss || 1))) * 100
+                          (displayStats.avgWin / (displayStats.avgWin + (displayStats.avgLoss || 1))) * 100
                         )}%`,
                       }}
                     />
@@ -408,14 +426,14 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                       className="bg-[#ff4a7d] h-full"
                       style={{
                         width: `${Math.round(
-                          (stats.avgLoss / (stats.avgWin + (stats.avgLoss || 1))) * 100
+                          (displayStats.avgLoss / (displayStats.avgWin + (displayStats.avgLoss || 1))) * 100
                         )}%`,
                       }}
                     />
                   </div>
                   <div className="flex justify-between text-[9px] font-mono">
-                    <span className="text-[#00ffa3] font-bold">${stats.avgWin}</span>
-                    <span className="text-[#ff4a7d] font-bold">-${stats.avgLoss}</span>
+                    <span className="text-[#00ffa3] font-bold">${displayStats.avgWin}</span>
+                    <span className="text-[#ff4a7d] font-bold">-${displayStats.avgLoss}</span>
                   </div>
                 </div>
               </div>
@@ -430,16 +448,16 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                   <Flame className="w-4 h-4 text-[#f59e0b] shrink-0" />
                   <div>
                     <div className="text-base font-bold font-mono text-white leading-tight">
-                      {stats.dayStreak.current}
+                      {displayStats.dayStreak.current}
                     </div>
                     <div className="text-[9px] text-[#848e9c]">Days Current</div>
                   </div>
                   <div className="ml-auto flex flex-col items-end text-[9px] font-mono gap-0.5">
                     <span className={`bg-[#00ffa3]/20 text-[#00ffa3] font-bold px-1 ${smCornerClass}`}>
-                      {stats.dayStreak.maxWin} W
+                      {displayStats.dayStreak.maxWin} W
                     </span>
                     <span className={`bg-[#ff4a7d]/20 text-[#ff4a7d] font-bold px-1 ${smCornerClass}`}>
-                      {stats.dayStreak.maxLoss} L
+                      {displayStats.dayStreak.maxLoss} L
                     </span>
                   </div>
                 </div>
@@ -449,16 +467,16 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                   <Flame className="w-4 h-4 text-[#f59e0b] shrink-0" />
                   <div>
                     <div className="text-base font-bold font-mono text-white leading-tight">
-                      {stats.tradeStreak.current}
+                      {displayStats.tradeStreak.current}
                     </div>
                     <div className="text-[9px] text-[#848e9c]">Trades Current</div>
                   </div>
                   <div className="ml-auto flex flex-col items-end text-[9px] font-mono gap-0.5">
                     <span className={`bg-[#00ffa3]/20 text-[#00ffa3] font-bold px-1 ${smCornerClass}`}>
-                      {stats.tradeStreak.maxWin} W
+                      {displayStats.tradeStreak.maxWin} W
                     </span>
                     <span className={`bg-[#ff4a7d]/20 text-[#ff4a7d] font-bold px-1 ${smCornerClass}`}>
-                      {stats.tradeStreak.maxLoss} L
+                      {displayStats.tradeStreak.maxLoss} L
                     </span>
                   </div>
                 </div>
@@ -468,7 +486,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
 
           {/* Column 2 (4 Cols): WaveScore Radar */}
           <div className="lg:col-span-4">
-            <WaveScoreRadar data={waveScore} roundedCorners={isRounded} />
+            <WaveScoreRadar data={displayWaveScore} roundedCorners={isRounded} />
           </div>
 
           {/* Column 3 (4 Cols): Balance Chart & Equity Curve */}
@@ -478,7 +496,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                 <div>
                   <div className="text-[11px] text-[#848e9c] font-medium tracking-tight">Current Balance</div>
                   <div className="text-2xl font-bold font-mono text-white mt-0.5">
-                    ${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${displayStats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </div>
                 </div>
                 <span className="text-[10px] text-[#848e9c] flex items-center gap-1 font-mono">
@@ -489,7 +507,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
               {/* Balance SVG Chart with Glowing Gradient Curve */}
               <div className="my-2.5 h-[130px] w-full relative">
                 {(() => {
-                  const curve = stats.equityCurve;
+                  const curve = displayStats.equityCurve;
                   if (curve.length < 2) return null;
                   const balances = curve.map((c) => c.balance);
                   const min = Math.min(...balances);
@@ -539,9 +557,9 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
             </div>
 
             <div className="flex justify-between text-[10px] font-mono text-[#848e9c] pt-2 border-t border-[#232836]">
-              <span>Initial: $25,000.00</span>
+              <span>Paper baseline: ${displayStats.startingBalance.toLocaleString(undefined,{minimumFractionDigits:2})}</span>
               <span className="text-[#00ffa3] font-bold">
-                +{((stats.totalNetReturn / 25000) * 100).toFixed(2)}% Return
+                +{displayStats.startingBalance>0?((displayStats.totalNetReturn / displayStats.startingBalance)*100).toFixed(2):'—'}% Return
               </span>
             </div>
           </div>
@@ -557,7 +575,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                 <div>
                   <div className="text-[10px] text-[#848e9c]">Gain %</div>
                   <div className="text-lg font-bold font-mono text-[#00ffa3]">
-                    +{((stats.totalNetReturn / 25000) * 100).toFixed(2)}%
+                    +{displayStats.startingBalance>0?((displayStats.totalNetReturn / displayStats.startingBalance)*100).toFixed(2):'—'}%
                   </div>
                   <div className="text-[9px] text-[#848e9c] font-mono">0.00% Abs</div>
                 </div>
@@ -565,12 +583,12 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                   <div className="text-[10px] text-[#848e9c]">NET P&L</div>
                   <div
                     className={`text-lg font-bold font-mono ${
-                      stats.totalNetReturn >= 0 ? 'text-[#00ffa3]' : 'text-[#ff4a7d]'
+                      displayStats.totalNetReturn >= 0 ? 'text-[#00ffa3]' : 'text-[#ff4a7d]'
                     }`}
                   >
-                    {stats.totalNetReturn >= 0
-                      ? `+$${stats.totalNetReturn.toFixed(2)}`
-                      : `-$${Math.abs(stats.totalNetReturn).toFixed(2)}`}
+                    {displayStats.totalNetReturn >= 0
+                      ? `+$${displayStats.totalNetReturn.toFixed(2)}`
+                      : `-$${Math.abs(displayStats.totalNetReturn).toFixed(2)}`}
                   </div>
                 </div>
               </div>
@@ -620,18 +638,18 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
               <div className="space-y-1 text-xs font-mono">
                 <div className="flex justify-between">
                   <span className="text-[#848e9c]">Max Balance Drawdown</span>
-                  <span className="text-[#ff4a7d] font-bold">{stats.maxDrawdown}%</span>
+                  <span className="text-[#ff4a7d] font-bold">{displayStats.maxDrawdown}%</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#848e9c]">Current Balance</span>
                   <span className="text-white font-bold">
-                    ${stats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${displayStats.currentBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#848e9c]">Highest Balance</span>
                   <span className="text-white font-bold">
-                    ${stats.highestBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    ${displayStats.highestBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

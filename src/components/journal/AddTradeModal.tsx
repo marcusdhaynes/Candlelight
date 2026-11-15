@@ -34,17 +34,18 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
 
   const [symbol, setSymbol] = useState(currentSymbol);
   const [side, setSide] = useState<JournalSide>('LONG');
-  const [entryPrice, setEntryPrice] = useState<string>('88500');
-  const [exitPrice, setExitPrice] = useState<string>('91200');
-  const [size, setSize] = useState<string>('0.15');
-  const [stopLoss, setStopLoss] = useState<string>('87500');
-  const [takeProfit, setTakeProfit] = useState<string>('92000');
-  const [status, setStatus] = useState<JournalStatus>('WIN');
-  const [selectedSetups, setSelectedSetups] = useState<string[]>(['Strong Entry', 'Followed Setup']);
+  const [entryPrice, setEntryPrice] = useState<string>('');
+  const [exitPrice, setExitPrice] = useState<string>('');
+  const [size, setSize] = useState<string>('');
+  const [stopLoss, setStopLoss] = useState<string>('');
+  const [takeProfit, setTakeProfit] = useState<string>('');
+  const [status, setStatus] = useState<JournalStatus>('OPEN');
+  const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
   const [selectedMistakes, setSelectedMistakes] = useState<string[]>([]);
-  const [note, setNote] = useState<string>('Clean breakout of 4H resistance zone with strong volume.');
+  const [note, setNote] = useState<string>('');
   const [emotion, setEmotion] = useState<'Confident' | 'Disciplined' | 'FOMO' | 'Greed' | 'Hesitant' | 'Revenge'>('Disciplined');
   const [portfolio, setPortfolio] = useState('Main Account');
+  const [validationError,setValidationError]=useState('');
 
   // Custom tag inputs
   const [customGoodTag, setCustomGoodTag] = useState('');
@@ -55,6 +56,7 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
   // Sync state when opening or when tradeToEdit changes
   useEffect(() => {
     if (!isOpen) return;
+    setValidationError('');
 
     if (tradeToEdit) {
       setSymbol(tradeToEdit.symbol);
@@ -81,19 +83,28 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
     } else {
       setSymbol(currentSymbol);
       setSide('LONG');
-      setEntryPrice('88500');
-      setExitPrice('91200');
-      setSize('0.15');
-      setStopLoss('87500');
-      setTakeProfit('92000');
-      setStatus('WIN');
-      setSelectedSetups(['Strong Entry', 'Followed Setup']);
+      setEntryPrice('');
+      setExitPrice('');
+      setSize('');
+      setStopLoss('');
+      setTakeProfit('');
+      setStatus('OPEN');
+      setSelectedSetups([]);
       setSelectedMistakes([]);
-      setNote('Clean breakout of 4H resistance zone with strong volume.');
+      setNote('');
       setEmotion('Disciplined');
       setPortfolio('Main Account');
     }
   }, [isOpen, tradeToEdit?.id]);
+
+  useEffect(()=>{
+    const entry=Number(entryPrice),exit=Number(exitPrice);
+    if(!exitPrice.trim() || !Number.isFinite(entry) || entry<=0 || !Number.isFinite(exit)||exit<=0){
+      setStatus('OPEN');return;
+    }
+    const pnl=(side==='LONG'?exit-entry:entry-exit);
+    setStatus(pnl>0?'WIN':pnl<0?'LOSS':'BE');
+  },[entryPrice,exitPrice,side]);
 
   if (!isOpen) return null;
 
@@ -137,11 +148,19 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const entry = parseFloat(entryPrice) || 0;
-    const exit = exitPrice ? parseFloat(exitPrice) : undefined;
-    const qty = parseFloat(size) || 1;
-    const sl = stopLoss ? parseFloat(stopLoss) : undefined;
-    const tp = takeProfit ? parseFloat(takeProfit) : undefined;
+    const entry = Number(entryPrice);
+    const exit = exitPrice.trim() ? Number(exitPrice) : undefined;
+    const qty = Number(size);
+    const sl = stopLoss.trim() ? Number(stopLoss) : undefined;
+    const tp = takeProfit.trim() ? Number(takeProfit) : undefined;
+    if(!symbol.trim()||!Number.isFinite(entry)||entry<=0||!Number.isFinite(qty)||qty<=0||
+      (exit!==undefined&&(!Number.isFinite(exit)||exit<=0))||
+      (sl!==undefined&&(!Number.isFinite(sl)||sl<=0))||
+      (tp!==undefined&&(!Number.isFinite(tp)||tp<=0))){
+      setValidationError('Enter a symbol and finite positive entry price and quantity. Optional prices must also be positive.');
+      return;
+    }
+    setValidationError('');
 
     let netReturn = 0;
     let netReturnPct = 0;
@@ -156,11 +175,12 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       netReturnPct = cost > 0 ? (netReturn / cost) * 100 : 0;
     }
 
+    const computedStatus:JournalStatus=exit===undefined?'OPEN':netReturn>0?'WIN':netReturn<0?'LOSS':'BE';
     const tradeData: JournalTrade = {
       id: tradeToEdit ? tradeToEdit.id : `tr-${Date.now()}`,
       symbol: symbol.startsWith('#') ? symbol : `#${symbol}`,
       side,
-      status,
+      status:computedStatus,
       openDate: tradeToEdit ? tradeToEdit.openDate : new Date().toISOString().replace('T', ' ').slice(0, 19),
       closeDate: exit ? (tradeToEdit?.closeDate || new Date().toISOString().replace('T', ' ').slice(0, 19)) : undefined,
       entryPrice: entry,
@@ -171,7 +191,7 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       netReturnPercent: Number(netReturnPct.toFixed(2)),
       setups: selectedSetups,
       mistakes: selectedMistakes,
-      efficiency: status === 'WIN' ? 88 : 45,
+      efficiency: tradeToEdit?.efficiency ?? 0, // Unknown until explicitly measured; never manufacture quality scores.
       note,
       stopLoss: sl,
       takeProfit: tp,
@@ -262,7 +282,8 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
               <label className="block text-[#848e9c] mb-1 font-medium">Status</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as JournalStatus)}
+                disabled
+                title="Calculated automatically from entry, exit, and side"
                 className="w-full bg-[#131722] border border-[#232836] rounded-lg px-3 py-2 text-white outline-none focus:border-[#2962ff] cursor-pointer"
               >
                 <option value="WIN">WIN</option>
@@ -521,6 +542,8 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
             />
           </div>
 
+          {validationError && <p role="alert" className="text-[#ff8296] text-xs">{validationError}</p>}
+          <p className="text-[10px] text-[#8594a8]">Status and realized return are calculated from entry, exit, side and quantity. No fees are assumed.</p>
           {/* Footer Submit */}
           <div className="pt-2 flex justify-end gap-2 border-t border-[#232836]">
             <button
