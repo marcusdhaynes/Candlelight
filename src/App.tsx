@@ -58,6 +58,7 @@ import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvalua
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {paperLedgerCriticalChanged} from './services/paperPersistence';
 import {loadRiskPolicy,saveRiskPolicy,evaluateRiskPolicy} from './services/riskCenter';
+import {updateFeedHealth,type MarketEvent,type FeedHealth} from './services/marketEvents';
 import {createPaperWriterLease} from './services/paperTabOwnership';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, paperExecutionPrice, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
@@ -186,6 +187,15 @@ export default function App() {
     latencyMs: 0,
   });
 
+  const feedHealthRef=useRef<Record<string,FeedHealth>>({});
+  const [feedHealth,setFeedHealth]=useState<Record<string,FeedHealth>>({});
+  const recordFeedEvent=useCallback((event:MarketEvent)=>{
+    feedHealthRef.current[event.marketId]=updateFeedHealth(feedHealthRef.current[event.marketId],event);
+  },[]);
+  useEffect(()=>{
+    const timer=window.setInterval(()=>setFeedHealth({...feedHealthRef.current}),1000);
+    return ()=>window.clearInterval(timer);
+  },[]);
   // State: Drawing Tools & Drawings
   const [activeTool, setActiveTool] = useState<DrawingToolType>('crosshair');
   const [isMagnetMode, setIsMagnetMode] = useState<boolean>(() => {
@@ -585,12 +595,13 @@ export default function App() {
           const hits=processPriceAlertTick(market,price,at);
           executeObservedTick(quote,at,hits);
         },
+        onMarketEvent:recordFeedEvent,
         onCandleTick:()=>{},onOrderBook:()=>{},onTrade:()=>{},onStatusChange:()=>{},
       }));
     }
     return ()=>{stopped=true;unsubs.forEach(unsub=>unsub());};
   },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-    activeAsset.chainId,activeAsset.pairAddress,assets,executeObservedTick,processPriceAlertTick]);
+    activeAsset.chainId,activeAsset.pairAddress,assets,executeObservedTick,processPriceAlertTick,recordFeedEvent]);
   useEffect(() => {
     const expire = () => setPaperAccounts(prev => {
       let changed = false;
@@ -1218,6 +1229,7 @@ export default function App() {
 
     // 4. Subscribe to Real Market Data (Binance WebSocket for crypto, high-precision feed for others)
     const unsubscribe = subscribeRealMarketData(activeAsset, activeTimeframe, {
+      onMarketEvent:recordFeedEvent,
       onPriceUpdate: (newPrice, change24h, changePercent24h, origin='snapshot') => {
         if (isCancelled) return;
 
@@ -1321,7 +1333,7 @@ export default function App() {
       isCancelled = true;
       unsubscribe();
     };
-  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe, processPriceAlertTick,executeObservedTick]);
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe, processPriceAlertTick,executeObservedTick,recordFeedEvent]);
 
   // All new paper trades must pass through the validated right-side order ticket.
   const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
@@ -1674,6 +1686,12 @@ export default function App() {
             onDeletePaperAccount={deletePaperAccount}
             paperSettings={paperPortfolio.settings}
             portfolio={paperPortfolio}
+            allMarkets={assets}
+            onSelectScreenedMarket={handleSelectAsset}
+            onAddScreenedMarket={asset=>setWatchlists(prev=>prev.map(list=>list.id===activeWatchlistId?
+              {...list,symbols:[...new Set([...list.symbols,marketIdentity(asset)])]}:list))}
+            feedHealth={feedHealth}
+            marketStatus={marketStatus}
             riskPolicy={riskPolicy}
             onRiskPolicyChange={setRiskPolicy}
             onClosePosition={handleClosePosition}
