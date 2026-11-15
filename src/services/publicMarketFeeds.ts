@@ -2,9 +2,11 @@ import type { Asset, OHLCV, Timeframe, TradeItem } from '../types';
 import { marketFetch } from './marketApi';
 import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
 import {createCoinbaseDepthState,acceptCoinbaseLevel2,coinbaseDepthRows} from './orderDepth';
+import {marketEvent,type MarketEvent} from './marketEvents';
 
 export type PublicCallbacks = {
-  onPriceUpdate: (price: number, change?: number, changePct?: number, origin?: 'stream'|'snapshot') => void;
+  onPriceUpdate: (price: number, change?: number, changePct?: number, origin?: 'stream'|'ticker'|'snapshot') => void;
+  onMarketEvent?: (event:MarketEvent)=>void;
   onCandleTick: (candle: OHLCV, isClosed: boolean) => void;
   onOrderBook: (book: { bids: any[]; asks: any[] }) => void;
   onTrade: (trade: TradeItem) => void;
@@ -308,18 +310,26 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   let lastTick = 0, lastBroadcast = 0, lastOpen = Date.now(), retry = 0;
   let candle: OHLCV | null = null;
   let pending: { price: number; size: number; side: 'buy'|'sell'; origin:'stream'|'snapshot' } | null = null;
+  const tradeTape:TradeItem[]=[];
+  let sequence=0;
   const coinbaseDepth=createCoinbaseDepthState();
   let bookDirty=false,lastBookBroadcast=0;
   const status = (connected: boolean, via: string) => {
     if (stopped) return;
     cb.onStatusChange({ connected, provider: `${a.source || a.exchange} · ${via}`, latencyMs: 0 });
   };
-  const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true) => {
-    if (stopped || !Number.isFinite(price) || price <= 0) return;
+  const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true,
+    kind:'trade'|'ticker'='trade') => {
+    if(stopped||!Number.isFinite(price)||price<=0)return;
     if(live)lastTick=Date.now();
-    if(!live){
-      // A REST quote is not an observed trade and must not create OHLCV.
-      pending={price,size:0,side,origin:'snapshot'};
+    cb.onMarketEvent?.(marketEvent(a,live?kind:'snapshot',price,size,side));
+    if(!live){pending={price,size:0,side,origin:'snapshot'};return;}
+    if(kind==='ticker'){
+      cb.onPriceUpdate(price,undefined,undefined,'ticker');
+      if(Date.now()-lastBroadcast>5000){
+        status(true,'ticker-only WebSocket · simulated fills disabled');
+        lastBroadcast=Date.now();
+      }
       return;
     }
     const bucket = candleBucketStart(lastTick/1000,timeframe);
@@ -333,6 +343,10 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     // Every observed trade reaches risk evaluation synchronously. UI candles are batched.
     cb.onPriceUpdate(price,undefined,undefined,'stream');
     pending = {price,size,side,origin:'stream'};
+    if(size>0){
+      tradeTape.push({id:String(lastTick)+'-'+(++sequence),price,size,side,time:lastTick});
+      if(tradeTape.length>1000)tradeTape.splice(0,tradeTape.length-1000);
+    }
     if (live && Date.now() - lastBroadcast > 5000) {
       status(true,'live WebSocket');
       lastBroadcast = Date.now();
@@ -345,12 +359,15 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       lastBookBroadcast=Date.now();
       cb.onOrderBook(coinbaseDepthRows(coinbaseDepth));
     }
-    if (!pending) return;
-    const t = pending; pending = null;
+    if(tradeTape.length){
+      for(const trade of tradeTape.splice(0))cb.onTrade(trade);
+    }
+    if(!pending)return;
+    const t=pending;pending=null;
     if(t.origin==='snapshot')cb.onPriceUpdate(t.price,undefined,undefined,'snapshot');
     if(t.origin!=='stream'||!candle)return;
     cb.onCandleTick({ ...candle }, false);
-    if (t.size > 0) cb.onTrade({ id: String(Date.now()), price: t.price, size: t.size, side: t.side, time: Date.now() });
+    // Prints were delivered from the tape queue above.
   }, 100);
   const open = () => {
     if (stopped) return;
@@ -390,10 +407,10 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
           const raw = JSON.parse(e.data), d = raw.data;
           if (source.startsWith('kraken') && isKrakenDerivative(a)) {
             if (raw.feed === 'ticker' && raw.product_id === futureSymbol(symbol))
-              tick(Number(raw.last),0,'buy');
+              tick(Number(raw.last),0,'buy',true,'ticker');
           } else if (source.startsWith('kraken')) {
             if (raw.channel === 'ticker' && Array.isArray(d) && d[0]?.last)
-              tick(Number(d[0].last),0,'buy');
+              tick(Number(d[0].last),0,'buy',true,'ticker');
           } else if (source === 'coinbase') {
             const product=coinbaseSymbol(symbol);
             if ((raw.type === 'snapshot' || raw.type === 'l2update') &&
@@ -405,9 +422,9 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
             if (raw.e === 'trade') tick(Number(raw.p),Number(raw.q)||0,raw.m?'sell':'buy');
           } else if (source === 'okx') {
             if (raw.arg?.channel === 'tickers' && Array.isArray(d) && d[0]?.instId === symbol)
-              tick(Number(d[0].last),0,'buy');
+              tick(Number(d[0].last),0,'buy',true,'ticker');
           } else if (source === 'bybit') {
-            if (raw.topic === 'tickers.'+symbol) tick(Number(d?.lastPrice),0,'buy');
+            if (raw.topic === 'tickers.'+symbol) tick(Number(d?.lastPrice),0,'buy',true,'ticker');
           } else if (source === 'hyperliquid (hyperliquid)' && raw.channel === 'trades') {
             for (const t of (Array.isArray(d) ? d : [])) {
               if (t.coin === a.feedSymbol) tick(Number(t.px), Number(t.sz)||0, t.side === 'A' ? 'sell' : 'buy');

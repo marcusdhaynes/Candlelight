@@ -1198,7 +1198,7 @@ export default function App() {
 
         const now = Date.now();
         // Only verified venue ticks may trigger the price-alert evaluator.
-        const alertEvents=origin==='stream'||activeAsset.pairAddress?
+        const alertEvents=origin==='stream'||origin==='ticker'||activeAsset.pairAddress?
           processPriceAlertTick(activeAsset,newPrice,now):[];
         const renderNow=origin!=='stream'||now-lastPriceRenderRef.current>=120;
         if(renderNow)lastPriceRenderRef.current=now;

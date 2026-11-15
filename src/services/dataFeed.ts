@@ -1,6 +1,7 @@
 import { marketFetch as fetch } from './marketApi';
 import { Asset, OHLCV, Timeframe, OrderBookItem, TradeItem } from '../types';
 import { fetchPublicQuote, fetchPublicHistory, subscribePublicFeed } from './publicMarketFeeds';
+import type {MarketEvent} from './marketEvents';
 
 // Map timeframe string to seconds
 export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
@@ -317,7 +318,8 @@ export function generateLiveTrade(currentPrice: number): TradeItem {
 }
 
 export interface LiveMarketCallbacks {
-  onPriceUpdate: (price: number, change24h?: number, changePercent24h?: number, origin?: 'stream'|'snapshot') => void;
+  onPriceUpdate: (price: number, change24h?: number, changePercent24h?: number, origin?: 'stream'|'ticker'|'snapshot') => void;
+  onMarketEvent?: (event:MarketEvent)=>void;
   onCandleTick: (candle: OHLCV, isClosed: boolean) => void;
   onOrderBook: (book: { bids: OrderBookItem[]; asks: OrderBookItem[] }) => void;
   onTrade: (trade: TradeItem) => void;
