@@ -1747,6 +1747,7 @@ export default function App() {
             orderEvents={paperPortfolio.orderEvents||[]}
             onCancelPendingOrder={handleCancelPendingOrder}
             activeAsset={activeAsset}
+            activeTimeframe={activeTimeframe}
             onEditPosition={handleEditPaperStops}
             onResolvePaperRecovery={resolvePaperRecovery}
           onResetPaper={handleResetPaper}

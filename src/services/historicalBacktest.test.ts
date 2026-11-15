@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import {DEFAULT_BACKTEST,runHistoricalBacktest,replayStep,validateHistoricalBacktestBars} from './historicalBacktest';
+const first=1800000000;
+const bars=Array.from({length:100},(_,i)=>{
+ const close=i<45?100:100+(i-44)*0.7;
+ return {time:first+i*60,open:close,close,high:close+0.1,low:close-0.1,volume:10};
+});
+const now=first+102*60;
+assert.equal(validateHistoricalBacktestBars(bars,'1m',now).bars.length,100);
+assert.equal(validateHistoricalBacktestBars([...bars.slice(0,20),...bars.slice(21)],'1m',now).bars.length,0);
+const forming={...bars[bars.length-1],time:first+101*60};
+assert.equal(validateHistoricalBacktestBars([...bars,forming],'1m',now).excludedForming,0);
+const incomplete={...forming,time:first+102*60};
+assert.equal(validateHistoricalBacktestBars([...bars,incomplete],'1m',now).excludedForming,1);
+const a=runHistoricalBacktest(bars,'1m',DEFAULT_BACKTEST,now);
+assert.ok(a.result&&!a.error);
+assert.equal(a.result!.trades.length>0,true);
+assert.equal(a.result!.barsUsed,100);
+assert.equal(a.result!.equity.length,100);
+assert.deepEqual(runHistoricalBacktest(bars,'1m',DEFAULT_BACKTEST,now),a);
+const expensive=runHistoricalBacktest(bars,'1m',{...DEFAULT_BACKTEST,feeBps:60,spreadBps:50},now);
+assert.ok(expensive.result!.finalBalance<a.result!.finalBalance);
+assert.equal(replayStep(3,100,1),4);
+assert.equal(replayStep(0,100,-5),0);
+assert.equal(replayStep(99,100,5),99);
+console.log('Backtest excludes incomplete/gapped history, never peeks ahead, reproduces identical results, and models execution costs.');

@@ -13,12 +13,14 @@ import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
 import {RiskCenterPanel} from './RiskCenterPanel';
 import {MarketScreenerPanel} from './MarketScreenerPanel';
 import {MarketDataHealthPanel} from './MarketDataHealthPanel';
+import {ReplayBacktestPanel} from './ReplayBacktestPanel';
+import type {Timeframe} from '../types';
 import type {FeedHealth} from '../services/marketEvents';
 import type {RiskPolicy} from '../services/riskCenter';
 import type {PaperPortfolio} from '../services/paperTrading';
 
 export interface BottomTradingPanelProps {
-  account:PaperAccount; positions:PaperPosition[]; activeAsset:Asset;
+  account:PaperAccount; positions:PaperPosition[]; activeAsset:Asset;activeTimeframe:Timeframe;
   paperAccounts:PaperAccountRecord[];
   activePaperAccountId:string;
   paperSettings:PaperSettings;portfolio:PaperPortfolio;
@@ -44,17 +46,17 @@ export interface BottomTradingPanelProps {
   isOpen:boolean;setIsOpen:(open:boolean|((prev:boolean)=>boolean))=>void;
   isExpanded:boolean;setIsExpanded:(open:boolean|((prev:boolean)=>boolean))=>void;
 }
-type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics'|'risk'|'screener'|'dataHealth';
+type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics'|'risk'|'screener'|'dataHealth'|'replay';
 const tabs:[Tab,string][]=[
   ['positions','Positions'],['orders','Orders'],['orderHistory','Order history'],
   ['balanceHistory','Balance history'],['activityLog','Activity log'],
-  ['tradeHistory','Trade history'],['analytics','Analytics'],['risk','Risk Center'],['screener','Screener'],['dataHealth','Data Health'],
+  ['tradeHistory','Trade history'],['analytics','Analytics'],['risk','Risk Center'],['screener','Screener'],['dataHealth','Data Health'],['replay','Replay & Backtest'],
 ];
 const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
-  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,paperTradingBlocked,fills,
+  account,positions,activeAsset,activeTimeframe,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,paperTradingBlocked,fills,
   portfolio,riskPolicy,onRiskPolicyChange,allMarkets,onSelectScreenedMarket,onAddScreenedMarket,feedHealth,marketStatus,
   onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
@@ -286,6 +288,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           <strong className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(f.realizedPnL)} {paperSettings.currency}</strong>
         </div>):<p className="p-5 text-[#8792a6]">No closed paper trades yet.</p>}
       </div>}
+      {tab==='replay'&&<ReplayBacktestPanel asset={activeAsset} timeframe={activeTimeframe}/>} 
       {tab==='screener'&&<MarketScreenerPanel assets={allMarkets} onSelect={onSelectScreenedMarket} onAdd={onAddScreenedMarket}/>}
       {tab==='dataHealth'&&<MarketDataHealthPanel health={feedHealth} status={marketStatus}/>}
       {tab==='risk'&&<RiskCenterPanel portfolio={portfolio} asset={activeAsset} policy={riskPolicy} onChange={onRiskPolicyChange}/>}
