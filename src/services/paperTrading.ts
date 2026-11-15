@@ -93,7 +93,8 @@ export function recalculatePaperPortfolio(portfolio: PaperPortfolio): PaperPortf
   }};
 }
 export const isFreshPaperQuote = (asset: Asset, now = Date.now()): boolean =>
-  asset.quoteStatus === 'live' && Number.isFinite(asset.price) && asset.price > 0 &&
+  asset.quoteStatus === 'live' && asset.streamConnected!==false &&
+  Number.isFinite(asset.price) && asset.price > 0 &&
   !!asset.quoteUpdatedAt && now >= asset.quoteUpdatedAt && now - asset.quoteUpdatedAt < 30_000;
 export function placePaperPosition(
   input: PaperPortfolio, asset: Asset, side: 'Long' | 'Short',

@@ -38,6 +38,8 @@ export interface Asset {
   /** Provenance of the displayed quote; bundled example values are not live quotes. */
   quoteStatus?: 'live' | 'delayed' | 'unavailable';
   quoteUpdatedAt?: number;
+  /** Explicitly false when the subscribed live feed has disconnected or fallen back to REST. */
+  streamConnected?: boolean;
   /** Specific DEX pool locator; never infer this from a shared ticker. */
   pairAddress?: string;
   chainId?: string;

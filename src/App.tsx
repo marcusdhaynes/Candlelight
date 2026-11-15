@@ -547,7 +547,7 @@ export default function App() {
       unsubs.push(subscribeRealMarketData(market,'1m',{
         onPriceUpdate:(price,_change,_percent,origin)=>{
           if(stopped||origin!=='stream'||!Number.isFinite(price)||price<=0)return;
-          const at=Date.now(),quote:Asset={...market,price,quoteStatus:'live',quoteUpdatedAt:at};
+          const at=Date.now(),quote:Asset={...market,price,quoteStatus:'live',quoteUpdatedAt:at,streamConnected:true};
           const hits=processPriceAlertTick(market,price,at);
           executeObservedTick(quote,at,hits);
         },
@@ -1147,11 +1147,12 @@ export default function App() {
             low24h: prev.low24h > 0 ? Math.min(prev.low24h, newPrice) : newPrice,
             quoteStatus: origin==='stream'&&!activeAsset.pairAddress ? 'live' : 'delayed',
             quoteUpdatedAt: now,
+            streamConnected:origin==='stream',
           };
         });
 
         if(origin==='stream'){
-          const quote:Asset={...activeAsset,price:newPrice,quoteStatus:'live',quoteUpdatedAt:now};
+          const quote:Asset={...activeAsset,price:newPrice,quoteStatus:'live',quoteUpdatedAt:now,streamConnected:true};
           executeObservedTick(quote,now,alertEvents);
         }
         // Throttle secondary UI updates to 150ms to keep render cycles smooth and light
@@ -1169,6 +1170,7 @@ export default function App() {
                     low24h: a.low24h > 0 ? Math.min(a.low24h, newPrice) : newPrice,
                     quoteStatus: origin==='stream'&&!activeAsset.pairAddress ? 'live' : 'delayed',
                     quoteUpdatedAt: now,
+                    streamConnected:origin==='stream',
                   }
                 : a
             )
@@ -1196,6 +1198,15 @@ export default function App() {
       onStatusChange: (status) => {
         if (isCancelled) return;
         setMarketStatus(status);
+        // A REST endpoint can be reachable while the real trade stream is
+        // disconnected. Never allow the previous live tick to authorize an order.
+        const realStream=status.connected&&status.provider.includes('live WebSocket');
+        if(!realStream){
+          setActiveAsset(prev=>({...prev,streamConnected:false,
+            quoteStatus:prev.quoteStatus==='live'?'delayed':prev.quoteStatus}));
+          setAssets(prev=>prev.map(asset=>assetIdentity(asset)===assetIdentity(activeAsset)?
+            {...asset,streamConnected:false,quoteStatus:asset.quoteStatus==='live'?'delayed':asset.quoteStatus}:asset));
+        }
       },
     });
 

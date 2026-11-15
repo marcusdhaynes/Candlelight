@@ -53,6 +53,8 @@ assert.throws(()=>placePaperPosition(empty,asset,'Long',200,1,undefined,undefine
 assert.throws(()=>placePaperPosition(empty,{...asset,currency:'USDT'},'Long',1,1,undefined,undefined,now),/USD-quoted|requires a USD-quoted/);
 assert.throws(()=>placePaperPosition(empty,{...asset,quoteUpdatedAt:now-60000},'Long',1,1,undefined,undefined,now),/verified/);
 assert.equal(isFreshPaperQuote({...asset,price:0},now),false);
+assert.equal(isFreshPaperQuote({...asset,streamConnected:false},now),false);
+assert.equal(isFreshPaperQuote({...asset,streamConnected:true},now),true);
 assert.equal(recalculatePaperPortfolio(closed).account.availableFunds,closed.account.balance);
 
 const levSettings=normalizePaperSettings({marginControl:true,
