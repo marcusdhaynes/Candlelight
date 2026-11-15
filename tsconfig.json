@@ -24,6 +24,7 @@
     "noEmit": true
   },
   "exclude": [
-    "tests/e2e"
+    "tests/e2e",
+    "supabase/functions"
   ]
 }
