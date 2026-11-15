@@ -1,0 +1,25 @@
+{
+  "name": "Candlelight — Trading Workspace",
+  "short_name": "Candlelight",
+  "description": "Market charts, replay, simulated trades and journal. Live market execution unavailable offline.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#131722",
+  "theme_color": "#131722",
+  "icons": [
+    {
+      "src": "./pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
