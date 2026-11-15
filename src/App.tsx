@@ -57,6 +57,7 @@ import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {paperLedgerCriticalChanged} from './services/paperPersistence';
+import {loadRiskPolicy,saveRiskPolicy,evaluateRiskPolicy} from './services/riskCenter';
 import {createPaperWriterLease} from './services/paperTabOwnership';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, paperExecutionPrice, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
@@ -415,6 +416,8 @@ export default function App() {
     activeAsset.chainId,activeAsset.pairAddress,assets,processPriceAlertTick]);
 
 
+  const [riskPolicy,setRiskPolicy]=useState(loadRiskPolicy);
+  useEffect(()=>{try{saveRiskPolicy(riskPolicy);}catch(error){console.warn('Could not persist risk policy',error);}},[riskPolicy]);
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
   const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(()=>loadPaperAccounts(assets));
   const [paperStorageWriteFailed,setPaperStorageWriteFailed]=useState(false);
@@ -464,6 +467,11 @@ export default function App() {
     if(!ruleMatchesMarket(order,market)||!ruleCanActivate(order)||!isFreshPaperQuote(market))
       throw new Error('Conditional order needs a fresh quote from the selected market.');
     let next:PaperPortfolio=base;
+    const submitWithRisk=(request:PaperOrderRequest)=>{
+      const verdict=evaluateRiskPolicy(next,market,request,riskPolicy);
+      if(!verdict.allowed)throw new Error(verdict.reason||'Risk policy rejected this paper order');
+      return submitPaperOrder(next,market,request);
+    };
         const side=order.action==='enter_short'?'Short':'Long';
         const spec=order.execution;
         const qtyFor=(kind:'market'|'limit',price:number)=>{
@@ -479,11 +487,11 @@ export default function App() {
             price*(1+(side==='Long'?1:-1)*spec.tpPercent/100):undefined);
           const sl=spec.slPrice||(spec.slPercent?
             price*(1-(side==='Long'?1:-1)*spec.slPercent/100):undefined);
-          next=submitPaperOrder(next,market,{side,kind,qty:qtyFor(kind,price),
+          next=submitWithRisk({side,kind,qty:qtyFor(kind,price),
             price:kind==='limit'?price:undefined,tp,sl,timeInForce:'GTC'});
         }else if(order.action==='increase_position'){
           if(!match)throw new Error('No position to increase.');
-          next=submitPaperOrder(next,market,{side:match.side,kind:'market',
+          next=submitWithRisk({side:match.side,kind:'market',
             qty:qtyFor('market',market.price)});
         }else if(order.action==='exit_long'||order.action==='exit_short'){
           const expected=order.action==='exit_long'?'Long':'Short';
@@ -514,7 +522,7 @@ export default function App() {
           throw new Error('Unsupported paper order action.');
         }
     return next;
-  },[]);
+  },[riskPolicy]);
 
   const executeObservedTick=useCallback((market:Asset,at:number,events:string[]=[])=>{
     if(!isFreshPaperQuote(market,at))return;
@@ -1318,10 +1326,16 @@ export default function App() {
   // All new paper trades must pass through the validated right-side order ticket.
   const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
     try {
+      const verdict=evaluateRiskPolicy(paperPortfolio,activeAsset,request,riskPolicy);
+      if(!verdict.allowed)throw new Error(verdict.reason||'Risk policy rejected this paper entry.');
       const next=submitPaperOrder(paperPortfolio,activeAsset,request);
       // Revalidate against current state at application time; never replace
       // an intervening tick fill with a portfolio computed from a stale render.
-      setPaperPortfolio(prev=>prev===paperPortfolio?next:submitPaperOrder(prev,activeAsset,request));
+      setPaperPortfolio(prev=>{
+        if(prev===paperPortfolio)return next;
+        const refreshed=evaluateRiskPolicy(prev,activeAsset,request,riskPolicy);
+        return refreshed.allowed?submitPaperOrder(prev,activeAsset,request):prev;
+      });
       setPaperError('');
       if(request.kind!=='market')setIsBottomTradingOpen(true);
       return null;
@@ -1659,6 +1673,9 @@ export default function App() {
             onSavePaperAccount={savePaperAccount}
             onDeletePaperAccount={deletePaperAccount}
             paperSettings={paperPortfolio.settings}
+            portfolio={paperPortfolio}
+            riskPolicy={riskPolicy}
+            onRiskPolicyChange={setRiskPolicy}
             onClosePosition={handleClosePosition}
             pendingOrders={paperPortfolio.pendingOrders||[]}
             orderEvents={paperPortfolio.orderEvents||[]}

@@ -10,12 +10,16 @@ import type {PaperAccountRecord} from '../services/paperAccounts';
 import {isPaperStorageBlocked} from '../services/paperAccounts';
 import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
+import {RiskCenterPanel} from './RiskCenterPanel';
+import type {RiskPolicy} from '../services/riskCenter';
+import type {PaperPortfolio} from '../services/paperTrading';
 
 export interface BottomTradingPanelProps {
   account:PaperAccount; positions:PaperPosition[]; activeAsset:Asset;
   paperAccounts:PaperAccountRecord[];
   activePaperAccountId:string;
-  paperSettings:PaperSettings;
+  paperSettings:PaperSettings;portfolio:PaperPortfolio;
+  riskPolicy:RiskPolicy;onRiskPolicyChange:(policy:RiskPolicy)=>void;
   onSelectPaperAccount:(id:string)=>void;
   onSavePaperAccount:(id:string|null,name:string,settings:PaperSettings)=>void;
   onDeletePaperAccount:(id:string)=>void;
@@ -35,17 +39,18 @@ export interface BottomTradingPanelProps {
   isOpen:boolean;setIsOpen:(open:boolean|((prev:boolean)=>boolean))=>void;
   isExpanded:boolean;setIsExpanded:(open:boolean|((prev:boolean)=>boolean))=>void;
 }
-type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics';
+type Tab='positions'|'orders'|'orderHistory'|'balanceHistory'|'activityLog'|'tradeHistory'|'analytics'|'risk';
 const tabs:[Tab,string][]=[
   ['positions','Positions'],['orders','Orders'],['orderHistory','Order history'],
   ['balanceHistory','Balance history'],['activityLog','Activity log'],
-  ['tradeHistory','Trade history'],['analytics','Analytics'],
+  ['tradeHistory','Trade history'],['analytics','Analytics'],['risk','Risk Center'],
 ];
 const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,paperTradingBlocked,fills,
+  portfolio,riskPolicy,onRiskPolicyChange,
   onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
@@ -276,6 +281,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           <strong className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(f.realizedPnL)} {paperSettings.currency}</strong>
         </div>):<p className="p-5 text-[#8792a6]">No closed paper trades yet.</p>}
       </div>}
+      {tab==='risk'&&<RiskCenterPanel portfolio={portfolio} asset={activeAsset} policy={riskPolicy} onChange={onRiskPolicyChange}/>}
       {tab==='analytics'&&<div className="p-4 flex flex-wrap gap-6">
         <span>Starting capital: {paperSettings.startingBalance.toLocaleString()} {paperSettings.currency}</span><span>Completed closes: {fills.filter(f=>f.note.toLowerCase().includes('close')).length}</span>
         <span>Net realized: {cash(account.realizedPnL)} {paperSettings.currency}</span><span>Open P&L: {cash(account.unrealizedPnL)} {paperSettings.currency}</span>
