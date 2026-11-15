@@ -76,7 +76,7 @@ export function PaperAccountModal({existing,proposedName,onClose,onSave,onDelete
           <label className="flex gap-2 items-center text-[12px] cursor-pointer">
             <input type="checkbox" className="accent-[#91aadc] h-4 w-4" checked={settings.futuresOptions.enabled}
               onChange={e=>change({futuresOptions:{...settings.futuresOptions,enabled:e.target.checked}})}/>
-            Futures and options — per contract
+            Futures, swaps and options — per contract
           </label>
           <label className="block mt-3">
             <span className={label}>Commission per contract (account currency)</span>
@@ -104,6 +104,20 @@ export function PaperAccountModal({existing,proposedName,onClose,onSave,onDelete
           <p className="text-[11px] text-[#a9adb7] mt-2">
             Fees are zero unless enabled. A fixed fee applies once per fill; a percent fee uses notional (enter 0.04 for 0.04%). Each opening, closing or partial-fill execution is calculated independently.
           </p>
+        </div>
+        <div className="border-t border-[#33363a] pt-3 space-y-2">
+          <div className="uppercase tracking-wider text-[10px] text-[#bab9b7]">Paper Execution Assumptions (optional)</div>
+          <p className="text-[11px] text-[#a9adb7]">These are hypothetical costs, not observed bid/ask or actual venue liquidity. Zero preserves earlier results. Half the spread plus adverse slippage applies to each fill.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <label><span className={label}>Full Spread (bps)</span>
+              <input type="number" min="0" max="1000" step="0.1" className={cls}
+                value={settings.execution.spreadBps}
+                onChange={e=>change({execution:{...settings.execution,spreadBps:Number(e.target.value)}})}/></label>
+            <label><span className={label}>Slippage (bps)</span>
+              <input type="number" min="0" max="1000" step="0.1" className={cls}
+                value={settings.execution.slippageBps}
+                onChange={e=>change({execution:{...settings.execution,slippageBps:Number(e.target.value)}})}/></label>
+          </div>
         </div>
         {error&&<p role="alert" className="text-[12px] text-[#ffa7aa]">{error}</p>}
       </div>

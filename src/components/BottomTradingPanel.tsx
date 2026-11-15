@@ -155,6 +155,9 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       <span className={live?'text-[#089981]':'text-[#f4b77c]'}>{live?'Live reference '+amount(activeAsset.price)+' '+activeAsset.currency:'Live price unavailable'}</span>
       <span className="text-[#aeb7ca]">{activeCategory} · {activeLeverage}×</span>
       <span className="text-[#9299aa]">{feeDescription}</span>
+      <span className="text-[#9299aa]" title="Assumptions, not observed market liquidity">
+        Execution: {paperSettings.execution.spreadBps} bps spread / {paperSettings.execution.slippageBps} bps slippage (modeled)
+      </span>
       <button type="button" disabled={paperTradingBlocked} title={paperTradingBlocked?'Trading locked until storage recovery':'Create simulated order'} onClick={onOpenTicket} className="disabled:opacity-40 disabled:cursor-not-allowed rounded bg-[#2862fb] px-3 py-1.5 font-semibold text-white hover:bg-[#477bf9]">Create order</button>
       <button type="button" className="ml-auto px-2 py-1 border border-[#5e5460] rounded hover:bg-[#393342]"
         onClick={()=>{if(window.confirm('Reset '+account.name+' and erase all its positions, pending orders, fills and conditional rules?'))onResetPaper();}}>Reset account</button>
