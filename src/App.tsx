@@ -53,6 +53,7 @@ import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
 import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal';
 import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
+import {KeyboardShortcutsDialog} from './components/KeyboardShortcutsDialog';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {closedMinuteRun,appendClosedMinute,completedIndicatorSignal,type IndicatorSignal} from './services/indicatorSignals';
@@ -788,6 +789,18 @@ export default function App() {
   const [isPipActive, setIsPipActive] = useState(false);
   const pipRef = useRef<ChartPictureInPictureRef>(null);
 
+  const [shortcutHelpOpen,setShortcutHelpOpen]=useState(false);
+  const [requestedDockTab,setRequestedDockTab]=useState<{tab:string;seq:number}|undefined>();
+  const [networkOffline,setNetworkOffline]=useState(()=>typeof navigator!=='undefined'&&!navigator.onLine);
+  useEffect(()=>{
+    const update=()=>setNetworkOffline(!navigator.onLine);
+    window.addEventListener('online',update);window.addEventListener('offline',update);
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
+  const requestBottomPanel=(tab:string)=>{
+    setIsBottomTradingOpen(true);
+    setRequestedDockTab(prev=>({tab,seq:(prev?.seq||0)+1}));
+  };
   const [isConditionalOrderModalOpen, setIsConditionalOrderModalOpen] = useState(false);
   const [selectedDependencyForOrder, setSelectedDependencyForOrder] = useState<DependencyContext | null>(null);
   const [orderToEdit, setOrderToEdit] = useState<ConditionalOrder | null>(null);
@@ -798,6 +811,39 @@ export default function App() {
     return saved ? (saved as RightSidebarTab) : 'alerts';
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(()=>{
+    const onKey=(event:KeyboardEvent)=>{
+      if(event.repeat)return;
+      const target=event.target as HTMLElement|null;
+      const editable=!!target?.closest('input,textarea,select,[contenteditable="true"],[role="textbox"]');
+      if(event.key==='Escape'){
+        if(editable&&!shortcutHelpOpen)return;
+        setShortcutHelpOpen(false);
+        setIsSymbolSearchOpen(false);setIsIndicatorsOpen(false);setIsAlertsOpen(false);
+        setIsSavedChartsOpen(false);setIsConditionalOrderModalOpen(false);
+        return;
+      }
+      if(editable||event.altKey)return;
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){
+        event.preventDefault();setAddingWatchlistSymbol(false);setIsSymbolSearchOpen(true);return;
+      }
+      if(event.ctrlKey||event.metaKey)return;
+      if(event.key==='?'){event.preventDefault();setShortcutHelpOpen(true);return;}
+      if(event.key==='/'&&!event.shiftKey){
+        event.preventDefault();setAddingWatchlistSymbol(false);setIsSymbolSearchOpen(true);return;
+      }
+      if(!event.shiftKey)return;
+      const key=event.key.toLowerCase();
+      if(key==='j'){event.preventDefault();setIsTradeJournalOpen(true);}
+      else if(key==='p'){event.preventDefault();setIsBottomTradingOpen(v=>!v);}
+      else if(key==='r'){event.preventDefault();requestBottomPanel('replay');}
+      else if(key==='s'){event.preventDefault();requestBottomPanel('screener');}
+      else if(key==='d'){event.preventDefault();requestBottomPanel('dataHealth');}
+    };
+    window.addEventListener('keydown',onKey);
+    return ()=>window.removeEventListener('keydown',onKey);
+  },[shortcutHelpOpen]);
+
 
   // State: Scales
   const [isLogScale, setIsLogScale] = useState<boolean>(() => {
@@ -1753,6 +1799,7 @@ export default function App() {
           onResetPaper={handleResetPaper}
             paperError={paperError}
             paperTradingBlocked={paperTradingBlocked}
+            requestedTab={requestedDockTab}
             fills={paperFills}
             conditionalOrders={conditionalOrders}
             onOpenCreateConditionalOrder={handleOpenCreateConditionalOrder}
@@ -1885,6 +1932,10 @@ export default function App() {
         </div>
       )}
 
+      {networkOffline&&<div role="alert" className="fixed bottom-0 right-0 z-[120] bg-[#513c25] text-[#ffe0b4] px-4 py-2 text-xs max-w-sm">
+        Offline: cached workspace may be visible, but live quotes and simulated executions cannot be verified.
+      </div>}
+      {shortcutHelpOpen&&<KeyboardShortcutsDialog onClose={()=>setShortcutHelpOpen(false)}/>}
       {/* Modals */}
       {isSymbolSearchOpen && (
         <SymbolSearchModal

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState,useEffect} from 'react';
 import {createPortal} from 'react-dom';
 import {ChevronDown, Maximize2, Minimize2, Minus, X, Download, Edit2, Zap, Plus, Settings2, Check} from 'lucide-react';
 import type {Asset, PaperAccount, PaperPosition} from '../types';
@@ -44,6 +44,7 @@ export interface BottomTradingPanelProps {
   onToggleConditionalOrderStatus:(id:string)=>void;
   onDeleteConditionalOrder:(id:string)=>void;
   onTestTriggerConditionalOrder:(order:ConditionalOrder)=>void;
+  requestedTab?:{tab:string;seq:number};
   isOpen:boolean;setIsOpen:(open:boolean|((prev:boolean)=>boolean))=>void;
   isExpanded:boolean;setIsExpanded:(open:boolean|((prev:boolean)=>boolean))=>void;
 }
@@ -62,9 +63,10 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
-  onDeleteConditionalOrder,onTestTriggerConditionalOrder,isOpen,setIsOpen,isExpanded,setIsExpanded,
+  onDeleteConditionalOrder,onTestTriggerConditionalOrder,requestedTab,isOpen,setIsOpen,isExpanded,setIsExpanded,
 })=>{
   const [tab,setTab]=useState<Tab>('positions');
+  useEffect(()=>{if(requestedTab&&tabs.some(([id])=>id===requestedTab.tab))setTab(requestedTab.tab as Tab);},[requestedTab?.seq]);
   const [quantity,setQuantity]=useState('1');
   const [accountListOpen,setAccountListOpen]=useState(false);
   // undefined = dialog closed; null = new account; string = edit existing account
@@ -182,9 +184,9 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
     </div>}
     {paperTradingBlocked&&<div role="alert" className="px-3 py-1.5 text-[11px] font-semibold text-[#ffd1a5] bg-[#3a2a22]">Paper execution, updates, and conditional orders are locked until the saved ledger is recoverable.</div>}
     {paperError&&<div role="alert" className="px-3 py-1 text-[11px] text-[#ffc5c5] bg-[#51202b]">{paperError}</div>}
-    <nav className="flex flex-wrap items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
+    <nav aria-label="Paper trading workspace tabs" className="flex flex-nowrap overflow-x-auto items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
       {tabs.map(([id,name])=><button type="button" key={id} onClick={()=>setTab(id)}
-        className={`rounded px-2 py-1 ${tab===id?'bg-[#2a3142] text-white':'text-[#9197a5] hover:bg-[#212633]'}`}>
+        className={`rounded px-2 py-1 shrink-0 whitespace-nowrap ${tab===id?'bg-[#2a3142] text-white':'text-[#9197a5] hover:bg-[#212633]'}`}>
         {name}{id==='positions'?` (${positions.length})`:id==='orders'?` (${conditionalOrders.length+pendingOrders.length})`:''}
       </button>)}
       <button type="button" className="ml-auto px-2 text-[#a5aabc]" title="Export settled paper executions as CSV" onClick={exportCsv}><Download size={15}/></button>
