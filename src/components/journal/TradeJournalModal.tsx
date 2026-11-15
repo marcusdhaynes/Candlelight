@@ -37,6 +37,7 @@ import { JournalTradeLog } from './JournalTradeLog';
 import { JournalEvaluator } from './JournalEvaluator';
 import { JournalAiAssistant } from './JournalAiAssistant';
 import { AddTradeModal } from './AddTradeModal';
+import {JournalCsvImportPanel} from './JournalCsvImportPanel';
 import {
   JournalGridSettingsModal,
   JournalLayoutSettings,
@@ -101,6 +102,18 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
       localStorage.removeItem(JOURNAL_KEY);
       setTrades([]);setJournalRecoveryBlocked(false);setJournalStorageError('');
     }catch(error){setJournalStorageError(error instanceof Error?error.message:'Recovery reset blocked');}
+  };
+  const [isCsvImportOpen,setIsCsvImportOpen]=useState(false);
+  const importCompletedTrades=(incoming:JournalTrade[]):number=>{
+    if(journalRecoveryBlocked)throw Error('Journal recovery must be resolved before importing.');
+    const known=new Set(trades.map(t=>t.id));
+    const next=incoming.filter(t=>!known.has(t.id));
+    if(!next.length)return 0;
+    const updated=[...trades,...next];
+    persistJournalTrades(updated);
+    setTrades(updated);
+    setJournalStorageError('Imported '+next.length+' completed USD-denominated executions.');
+    return next.length;
   };
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<JournalTrade | null>(null);
@@ -881,6 +894,10 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
             </div>}
             {journalStorageError&&<div role="alert" className="px-3 py-1 text-xs text-[#ffc7c7] bg-[#4d252b]">{journalStorageError}</div>}
             <div className="flex items-center justify-end gap-2 px-3 py-1 bg-[#111823] border-b border-[#242d3c] text-[10px] text-[#a4b0c2]">
+              <button type="button" disabled={journalRecoveryBlocked} onClick={()=>setIsCsvImportOpen(true)}
+                className="rounded border border-[#364e7b] px-2 py-1 text-[#abc7ff] hover:bg-[#1b2945] disabled:opacity-40">
+                Import Broker CSV
+              </button>
               <label htmlFor="journal-opening-balance">Independent Journal Opening Balance</label>
               <input id="journal-opening-balance" type="number" min="0" step="0.01"
                 value={journalOpeningBalance}
@@ -1048,6 +1065,8 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
       </div>
 
       {/* Add / Edit Trade Modal */}
+      {isCsvImportOpen&&<JournalCsvImportPanel onClose={()=>setIsCsvImportOpen(false)}
+        onCommit={importCompletedTrades}/>}
       <AddTradeModal
         isOpen={isAddModalOpen || !!editingTrade}
         tradeToEdit={editingTrade}
