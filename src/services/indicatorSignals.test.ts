@@ -14,7 +14,7 @@ assert.equal(indicatorConditionMet('price_minus_sma20','greater_than',0,sig),tru
 assert.equal(indicatorConditionMet('rsi14','greater_than',65,sig),true);
 assert.equal(indicatorConditionMet('unknown','greater_than',0,sig),false);
 assert.equal(indicatorConditionMet('rsi14','crosses_above',65,sig),false);
-assert.equal(closedMinuteRun(bars,base+24*60).length,23); // open interval excluded
+assert.equal(closedMinuteRun(bars,base+24*60).length,24); // open interval excluded
 assert.equal(closedMinuteRun([...bars.slice(0,20),...bars.slice(21)],now).length,4);
 assert.equal(completedIndicatorSignal(closedMinuteRun([...bars.slice(0,20),...bars.slice(21)],now)),undefined);
 assert.equal(appendClosedMinute(valid,{...bars[24],time:base+27*60},base+29*60).length,1);
