@@ -54,6 +54,7 @@ import { ConditionalOrderModal } from './components/orders/ConditionalOrderModal
 import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
+import {marketIdentity} from './services/marketIdentity';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
 
@@ -412,6 +413,7 @@ export default function App() {
 
   // State: Modals & Panels (Right sidebar active tab defaults to 'alerts' as in screenshot!)
   const [isSymbolSearchOpen, setIsSymbolSearchOpen] = useState(false);
+  const [addingWatchlistSymbol,setAddingWatchlistSymbol]=useState(false);
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isTradeJournalOpen, setIsTradeJournalOpen] = useState(false);
@@ -1348,7 +1350,7 @@ export default function App() {
         setActiveTimeframe={setActiveTimeframe}
         chartType={chartType}
         setChartType={handleSetChartType}
-        onOpenSymbolSearch={() => setIsSymbolSearchOpen(true)}
+        onOpenSymbolSearch={() => {setAddingWatchlistSymbol(false);setIsSymbolSearchOpen(true);}}
         onOpenIndicators={() => setIsIndicatorsOpen(true)}
         onOpenAlerts={() => setIsAlertsOpen(true)}
         indicators={indicators}
@@ -1498,7 +1500,7 @@ export default function App() {
           setWatchlists={setWatchlists}
           activeWatchlistId={activeWatchlistId}
           setActiveWatchlistId={setActiveWatchlistId}
-          onOpenAddSymbolModal={() => setIsSymbolSearchOpen(true)}
+          onOpenAddSymbolModal={() => {setAddingWatchlistSymbol(true);setIsSymbolSearchOpen(true);}}
           priceFlashMap={priceFlashMap}
           asks={orderBook.asks}
           bids={orderBook.bids}
@@ -1590,7 +1592,15 @@ export default function App() {
           isOpen={isSymbolSearchOpen}
           onClose={() => setIsSymbolSearchOpen(false)}
           assets={assets}
-          onSelectAsset={handleSelectAsset}
+          onSelectAsset={selected=>{
+            handleSelectAsset(selected);
+            if(addingWatchlistSymbol){
+              const key=marketIdentity(selected);
+              setWatchlists(prev=>prev.map(w=>w.id===activeWatchlistId&&!w.symbols.includes(key)?
+                {...w,symbols:[...w.symbols,key]}:w));
+            }
+            setAddingWatchlistSymbol(false);
+          }}
           currentSymbol={activeAsset.symbol}
         />
       )}

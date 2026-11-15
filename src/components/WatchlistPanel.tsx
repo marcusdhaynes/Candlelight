@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Asset, Watchlist, AssetCategory } from '../types';
+import {marketIdentity,resolveWatchlistEntry} from '../services/marketIdentity';
 import {
   Plus,
   Trash2,
@@ -63,10 +64,11 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
   // Assets in current watchlist (memoized to avoid re-filtering every render)
   const watchlistAssets = React.useMemo(() => {
     return currentWatchlist.symbols
-      .map((sym) => assets.find((a) => a.symbol === sym))
-      .filter((a): a is Asset => !!a)
-      .filter((a) => filterCategory === 'all' || a.category === filterCategory);
+      .map(ref=>({ref,asset:resolveWatchlistEntry(ref,assets)}))
+      .filter((entry):entry is {ref:string;asset:Asset}=>!!entry.asset)
+      .filter(row=>filterCategory==='all'||row.asset.category===filterCategory);
   }, [currentWatchlist, assets, filterCategory]);
+  const ambiguousLegacy=currentWatchlist.symbols.filter(ref=>!resolveWatchlistEntry(ref,assets));
 
   const handleCreateWatchlist = (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,7 +77,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
     const newList: Watchlist = {
       id: 'wl-' + Date.now(),
       name: newListName.trim(),
-      symbols: [activeAsset.symbol],
+      symbols: [marketIdentity(activeAsset)],
       isCustom: true,
     };
 
@@ -211,6 +213,9 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
         </div>
       </div>
 
+      {ambiguousLegacy.length>0&&<p role="note" className="px-2 py-1 text-[10px] text-[#f6b36e]">
+        {ambiguousLegacy.length} legacy symbol(s) have ambiguous venues. Re-add from search to bind their exchange; no venue was guessed.
+      </p>}
       {/* Watchlist Quotes Table */}
       <div className="flex-1 overflow-y-auto divide-y divide-[#2a2e39]/50 min-h-0">
         {watchlistAssets.length === 0 ? (
@@ -218,15 +223,15 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
             No symbols in this list. Click "Add Symbol" above to populate your watchlist.
           </div>
         ) : (
-          watchlistAssets.map((asset) => {
-            const isSelected = asset.symbol === activeAsset.symbol;
+          watchlistAssets.map(({asset,ref}) => {
+            const isSelected = marketIdentity(asset) === marketIdentity(activeAsset);
             const isPositive = asset.changePercent24h >= 0;
             const flash = priceFlashMap[asset.symbol];
 
             return (
               <div
-                key={asset.symbol}
-                id={`watchlist-item-${asset.symbol}`}
+                key={ref}
+                id={`watchlist-item-${asset.symbol}-${asset.source||asset.exchange}`}
                 onClick={() => onSelectAsset(asset)}
                 className={`px-2 py-1 flex items-center justify-between cursor-pointer group transition ${
                   isSelected
@@ -271,7 +276,7 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
 
                 {/* Remove Symbol from List */}
                 <button
-                  onClick={(e) => handleRemoveSymbol(asset.symbol, e)}
+                  onClick={(e) => handleRemoveSymbol(ref, e)}
                   className="opacity-0 group-hover:opacity-100 text-[#787b86] hover:text-[#f23645] p-0.5 ml-1 rounded hover:bg-[#2a2e39] transition"
                   title="Remove from watchlist"
                 >
