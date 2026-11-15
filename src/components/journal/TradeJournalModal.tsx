@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { JournalTrade, JournalTab } from '../../types';
+import {JOURNAL_KEY,JOURNAL_BACKUP_KEY,isJournalRecoveryBlocked,loadJournalTrades,
+ persistJournalTrades} from '../../services/journalStorage';
 import {
   calculateJournalStats,
   calculateWaveScore,
@@ -68,26 +70,38 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
     try{localStorage.setItem('candlelight_journal_opening_balance_v1',String(value));}
     catch(e){console.warn('Journal opening balance could not be saved',e);}
   };
-  const [trades, setTrades] = useState<JournalTrade[]>(() => {
-    let saved:string|null=null;
-    try{saved=localStorage.getItem('tradingview_journal_trades');}catch{}
-    if(saved){
-      try{
-        const restored=JSON.parse(saved);
-        if(Array.isArray(restored)&&restored.every(t=>t&&typeof t.id==='string'&&
-          typeof t.openDate==='string'&&typeof t.symbol==='string'&&
-          Number.isFinite(t.netReturn)&&Array.isArray(t.setups)&&Array.isArray(t.mistakes)))
-          return restored;
-      }catch(e){console.warn('Unreadable journal saved entries',e);}
-      // Never silently discard individual trades from a partially corrupt saved journal.
-      try{if(!localStorage.getItem('candlelight_journal_recovery_backup_v1'))
-        localStorage.setItem('candlelight_journal_recovery_backup_v1',saved);}
-      catch(e){console.warn('Could not back up unreadable journal',e);}
-    }
-    // A real journal starts empty; examples must be explicitly imported.
-    return [];
-  });
-
+  const [trades,setTrades]=useState<JournalTrade[]>(loadJournalTrades);
+  const [journalRecoveryBlocked,setJournalRecoveryBlocked]=useState(isJournalRecoveryBlocked);
+  const [journalStorageError,setJournalStorageError]=useState('');
+  const applyJournalChange=(update:(current:JournalTrade[])=>JournalTrade[])=>{
+    if(journalRecoveryBlocked){setJournalStorageError('Journal editing is locked until recovery is resolved.');return;}
+    const next=update(trades);
+    try{
+      persistJournalTrades(next);
+      setTrades(next);
+      setJournalStorageError('');
+    }catch(error){setJournalStorageError(error instanceof Error?error.message:'Could not save journal');}
+  };
+  const exportJournalBackup=()=>{
+    try{
+      const backup=localStorage.getItem(JOURNAL_BACKUP_KEY);
+      if(!backup)throw Error('No recovery backup is available');
+      const url=URL.createObjectURL(new Blob([backup],{type:'application/json'}));
+      const link=document.createElement('a');
+      link.href=url;link.download='candlelight-journal-recovery.json';link.click();
+      URL.revokeObjectURL(url);
+    }catch(error){setJournalStorageError(error instanceof Error?error.message:'Journal export failed');}
+  };
+  const startJournalFresh=()=>{
+    if(!journalRecoveryBlocked)return;
+    try{
+      const raw=localStorage.getItem(JOURNAL_KEY);
+      if(raw&&!localStorage.getItem(JOURNAL_BACKUP_KEY))throw Error('Backup not yet available. Original journal remains protected.');
+      if(!window.confirm('The original journal is backed up. Starting fresh replaces its active data; export the backup first. Continue?'))return;
+      localStorage.removeItem(JOURNAL_KEY);
+      setTrades([]);setJournalRecoveryBlocked(false);setJournalStorageError('');
+    }catch(error){setJournalStorageError(error instanceof Error?error.message:'Recovery reset blocked');}
+  };
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingTrade, setEditingTrade] = useState<JournalTrade | null>(null);
   const [isMaximized, setIsMaximized] = useState(true);
@@ -431,30 +445,12 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   const stats = calculateJournalStats(trades,journalOpeningBalance);
   const waveScore = calculateWaveScore(trades);
 
-  const handleAddTrade = (newTrade: JournalTrade) => {
-    setTrades((prev) => {
-      const updated = [newTrade, ...prev];
-      localStorage.setItem('tradingview_journal_trades', JSON.stringify(updated));
-      return updated;
-    });
+  const handleAddTrade = (newTrade:JournalTrade) => applyJournalChange(prev=>[newTrade,...prev]);
+  const handleUpdateTrade = (updatedTrade:JournalTrade) => {
+    applyJournalChange(prev=>prev.map(t=>t.id===updatedTrade.id?updatedTrade:t));
+    if(!journalRecoveryBlocked)setEditingTrade(null);
   };
-
-  const handleUpdateTrade = (updatedTrade: JournalTrade) => {
-    setTrades((prev) => {
-      const updated = prev.map((t) => (t.id === updatedTrade.id ? updatedTrade : t));
-      localStorage.setItem('tradingview_journal_trades', JSON.stringify(updated));
-      return updated;
-    });
-    setEditingTrade(null);
-  };
-
-  const handleDeleteTrade = (id: string) => {
-    setTrades((prev) => {
-      const updated = prev.filter((t) => t.id !== id);
-      localStorage.setItem('tradingview_journal_trades', JSON.stringify(updated));
-      return updated;
-    });
-  };
+  const handleDeleteTrade = (id:string) => applyJournalChange(prev=>prev.filter(t=>t.id!==id));
 
   return (
     <div
@@ -878,6 +874,12 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
 
           {/* MAIN BODY AREA */}
           <div className="flex-1 flex flex-col overflow-hidden bg-[#0f131c] min-w-0">
+            {journalRecoveryBlocked&&<div role="alert" className="flex items-center gap-3 px-3 py-2 bg-[#432d20] text-[#ffdbab] text-xs">
+              Journal edits are locked: saved entries need recovery. No records were silently discarded.
+              <button type="button" className="underline font-semibold" onClick={exportJournalBackup}>Export original journal</button>
+              <button type="button" className="underline font-semibold" onClick={startJournalFresh}>Start fresh (keep backup)</button>
+            </div>}
+            {journalStorageError&&<div role="alert" className="px-3 py-1 text-xs text-[#ffc7c7] bg-[#4d252b]">{journalStorageError}</div>}
             <div className="flex items-center justify-end gap-2 px-3 py-1 bg-[#111823] border-b border-[#242d3c] text-[10px] text-[#a4b0c2]">
               <label htmlFor="journal-opening-balance">Independent Journal Opening Balance</label>
               <input id="journal-opening-balance" type="number" min="0" step="0.01"
@@ -895,9 +897,9 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
                   layoutSettings={layoutSettings}
                   onUpdateSettings={handleUpdateSettings}
                   onResetSettings={handleResetSettings}
-                  onOpenAddTrade={() => setIsAddModalOpen(true)}
+                  onOpenAddTrade={() => {if(!journalRecoveryBlocked)setIsAddModalOpen(true);}}
                   onDeleteTrade={handleDeleteTrade}
-                  onEditTrade={(trade) => setEditingTrade(trade)}
+                  onEditTrade={(trade) => {if(!journalRecoveryBlocked)setEditingTrade(trade);}}
                   onSelectTrade={(trade) => {}}
                   onOpenSettings={() => setIsSettingsModalOpen(true)}
                   isMaximized={isMaximized}
@@ -924,7 +926,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
                     setSelectedCalendarDay(dayStr);
                   }}
                   onNavigateToCalendar={() => setActiveTab('calendar')}
-                  onOpenAddTrade={() => setIsAddModalOpen(true)}
+                  onOpenAddTrade={() => {if(!journalRecoveryBlocked)setIsAddModalOpen(true);}}
                   onOpenSettings={() => setIsSettingsModalOpen(true)}
                   isMaximized={isMaximized}
                   onToggleMaximize={() => setIsMaximized((prev) => !prev)}
@@ -944,8 +946,8 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
                   }}
                   selectedDay={selectedCalendarDay}
                   onSelectDay={(dayStr) => setSelectedCalendarDay(dayStr)}
-                  onOpenAddTrade={() => setIsAddModalOpen(true)}
-                  onEditTrade={(trade) => setEditingTrade(trade)}
+                  onOpenAddTrade={() => {if(!journalRecoveryBlocked)setIsAddModalOpen(true);}}
+                  onEditTrade={(trade) => {if(!journalRecoveryBlocked)setEditingTrade(trade);}}
                   onClearSelectedDay={() => setSelectedCalendarDay(null)}
                   onSelectTrade={(trade) => {
                     setActiveTab('trades');
