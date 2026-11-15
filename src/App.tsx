@@ -828,7 +828,9 @@ export default function App() {
         event.preventDefault();setAddingWatchlistSymbol(false);setIsSymbolSearchOpen(true);return;
       }
       if(event.ctrlKey||event.metaKey)return;
-      if(event.key==='?'){event.preventDefault();setShortcutHelpOpen(true);return;}
+      if(event.key==='?'||(event.shiftKey&&(event.key==='/'||event.code==='Slash'))){
+        event.preventDefault();setShortcutHelpOpen(true);return;
+      }
       if(event.key==='/'&&!event.shiftKey){
         event.preventDefault();setAddingWatchlistSymbol(false);setIsSymbolSearchOpen(true);return;
       }

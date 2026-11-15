@@ -11,6 +11,9 @@ export default defineConfig({
   reporter:process.env.CI?'github':'list',
   use:{
     baseURL,
+    // Standard UI tests use deterministic mocked feeds; service workers bypass
+    // page-level routes and are tested separately through the published asset.
+    serviceWorkers:'block',
     screenshot:'only-on-failure',
     trace:'retain-on-failure',
   },

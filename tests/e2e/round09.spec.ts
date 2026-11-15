@@ -22,7 +22,7 @@ test('shortcuts navigate screener, replay and help without changing URL',async({
  await expect(page.locator('#candlelight-screener')).toBeVisible();
  await page.keyboard.press('Shift+R');
  await expect(page.locator('#candlelight-historical-lab')).toBeVisible();
- await page.keyboard.press('Shift+/');
+ await page.keyboard.press('Shift+Slash');
  await expect(page.getByRole('dialog',{name:'Candlelight Keyboard Shortcuts'})).toBeVisible();
  await page.keyboard.press('Escape');
  await expect(page.getByRole('dialog',{name:'Candlelight Keyboard Shortcuts'})).toHaveCount(0);
