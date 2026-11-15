@@ -98,11 +98,15 @@ export default function App() {
   });
   const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>(() => {
     const saved = localStorage.getItem('tv_timeframe');
-    return saved ? (saved as Timeframe) : '1m';
+    const allowed:Timeframe[]=['1s','5s','15s','30s','1m','3m','5m','15m','30m',
+      '45m','1h','2h','3h','4h','1D','1W','1M','3M','12M'];
+    return allowed.includes(saved as Timeframe) ? saved as Timeframe : '1m';
   });
   const [chartType, setChartType] = useState<ChartType>(() => {
     const saved = localStorage.getItem('tv_chart_type');
-    return saved ? (saved as ChartType) : 'candlestick';
+    const allowed:ChartType[]=['candlestick','bar','hollow','heikin-ashi','line',
+      'area','baseline','column','step-line','high-low'];
+    return allowed.includes(saved as ChartType) ? saved as ChartType : 'candlestick';
   });
 
   // State: Chart Data & Candles
@@ -115,11 +119,14 @@ export default function App() {
     // Migrate the most recently saved legacy list before retiring that key.
     const legacy = readLocalJson<Watchlist[] | null>('tv_watchlists', null);
     const stored = legacy ?? readLocalJson<Watchlist[] | null>('tv_watchlists_v4', null);
-    return Array.isArray(stored) && stored.length > 0 ? stored : INITIAL_WATCHLISTS;
+    const valid = Array.isArray(stored) ? stored.filter(item =>
+      item && typeof item.id==='string' && typeof item.name==='string' &&
+      Array.isArray(item.symbols) && item.symbols.every(s=>typeof s==='string')) : [];
+    return valid.length > 0 ? valid : INITIAL_WATCHLISTS;
   });
   const [activeWatchlistId, setActiveWatchlistId] = useState<string>(() => {
     const saved = localStorage.getItem('tv_active_watchlist_id');
-    return saved ? saved : watchlists[0].id;
+    return saved && watchlists.some(w=>w.id===saved) ? saved : watchlists[0].id;
   });
 
   // The exported Kraken catalog is bundled locally; no AI Studio server is needed.
@@ -153,7 +160,8 @@ export default function App() {
 
   const [drawings, setDrawings] = useState<Drawing[]>(() => {
     const value = readLocalJson<Drawing[]>('tv_drawings', INITIAL_DRAWINGS);
-    return Array.isArray(value) ? value : INITIAL_DRAWINGS;
+    return Array.isArray(value) ? value.filter(d=>d && typeof d.id==='string' &&
+      typeof d.type==='string' && Array.isArray(d.points) && typeof d.color==='string') : INITIAL_DRAWINGS;
   });
   const [drawingHistory, setDrawingHistory] = useState<Drawing[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -164,6 +172,11 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        const keys=['sma20','sma50','sma200','ema9','ema21','bollingerBands',
+          'vwap','supertrend','volume','rsi','macd'];
+        if(!parsed || typeof parsed!=='object' ||
+          !keys.every(k=>parsed[k] && typeof parsed[k].enabled==='boolean'))
+          throw new Error('Invalid saved indicator configuration');
         if (!localStorage.getItem('tv_indicators_vol_v2')) {
           if (parsed.volume) parsed.volume.enabled = false;
           localStorage.setItem('tv_indicators_vol_v2', 'true');
@@ -209,14 +222,18 @@ export default function App() {
   // State: Detailed Alerts & Price Alerts (Matching Screenshot with 4 alerts)
   const [detailedAlerts, setDetailedAlerts] = useState<DetailedAlert[]>(() => {
     const saved = readLocalJson<DetailedAlert[]>('tv_detailed_alerts', []);
-    return Array.isArray(saved) ? saved : [];
+    return Array.isArray(saved) ? saved.filter(a=>a && typeof a.id==='string' &&
+      typeof a.symbol==='string' && typeof a.status==='string') : [];
   });
 
   const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
     const saved = readLocalJson<PriceAlert[]>('tv_alerts', []);
     // Unbound legacy alerts are visible but paused, not allowed to fire on
     // whichever exchange happens to be selected.
-    return Array.isArray(saved) ? saved.map(a=>a.exchange?a:{...a,paused:true}) : [];
+    return Array.isArray(saved) ? saved.filter(a=>a && typeof a.id==='string' &&
+      typeof a.symbol==='string' && Number.isFinite(a.targetPrice) &&
+      (a.condition==='cross_above'||a.condition==='cross_below'))
+      .map(a=>a.exchange?a:{...a,paused:true}) : [];
   });
   const alertsRef = useRef<PriceAlert[]>(alerts);
   const previousAlertPricesRef = useRef<Record<string, number>>({});
@@ -324,8 +341,16 @@ export default function App() {
         return t?.quoteStatus==='live'?{...a,...t}:null;
       }));
       if(cancelled)return;
-      setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
-        portfolio:quotes.reduce((p,q)=>q?evaluatePaperOrders(p,q):p,a.portfolio)}))}));
+      setPaperAccounts(prev=>{
+        let changed=false;
+        const accounts=prev.accounts.map(record=>{
+          const portfolio=quotes.reduce((state,q)=>q?evaluatePaperOrders(state,q):state,record.portfolio);
+          if(portfolio===record.portfolio)return record;
+          changed=true;
+          return {...record,portfolio};
+        });
+        return changed?{...prev,accounts}:prev;
+      });
     };
     void refresh();
     const timer=window.setInterval(()=>{void refresh();},20000);
@@ -903,8 +928,16 @@ export default function App() {
           // Value ONLY the selected symbol at its own observed real-market tick.
           const quote={...activeAsset,price:newPrice,quoteUpdatedAt:now,
             quoteStatus:activeAsset.pairAddress?'delayed' as const:'live' as const};
-          setPaperAccounts(prev=>({...prev,accounts:prev.accounts.map(a=>({...a,
-            portfolio:evaluatePaperOrders(a.portfolio,quote,now)}))}));
+          setPaperAccounts(prev=>{
+            let changed=false;
+            const accounts=prev.accounts.map(record=>{
+              const portfolio=evaluatePaperOrders(record.portfolio,quote,now);
+              if(portfolio===record.portfolio)return record;
+              changed=true;
+              return {...record,portfolio};
+            });
+            return changed?{...prev,accounts}:prev;
+          });
         }
       },
 
