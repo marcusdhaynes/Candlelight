@@ -55,7 +55,7 @@ import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
-import {marketIdentity} from './services/marketIdentity';
+import {marketIdentity,alertMarketIdentity} from './services/marketIdentity';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
 
@@ -283,7 +283,8 @@ export default function App() {
     return Array.isArray(saved) ? saved.filter(a=>a && typeof a.id==='string' &&
       typeof a.symbol==='string' && Number.isFinite(a.targetPrice) &&
       (a.condition==='cross_above'||a.condition==='cross_below'))
-      .map(a=>a.exchange?a:{...a,paused:true}) : [];
+      .map(a=>a.exchange && (!a.symbol.includes('@')||(a.pairAddress&&a.chainId))?
+        a:{...a,paused:true}) : [];
   });
   const alertsRef = useRef<PriceAlert[]>(alerts);
   const previousAlertPricesRef = useRef<Record<string, number>>({});
@@ -304,13 +305,17 @@ export default function App() {
   }, [alertLog]);
   const [activeNotification, setActiveNotification] = useState<{ id: string; message: string; type: 'alert' | 'info' } | null>(null);
   const processPriceAlertTick = useCallback((market:Asset, price:number, now=Date.now()) => {
-    const key = assetIdentity(market);
+    const key = alertMarketIdentity(market);
     const previous = previousAlertPricesRef.current[key];
     previousAlertPricesRef.current[key] = price;
     if (!Number.isFinite(previous) || !Number.isFinite(price) || price <= 0) return [];
     const venue = market.source || market.exchange;
     const hits = alertsRef.current.filter(a => a.symbol === market.symbol &&
       a.exchange === venue && (!a.marketType || a.marketType === market.marketType) &&
+      (market.pairAddress ?
+        a.pairAddress?.toLowerCase()===market.pairAddress.toLowerCase()&&
+        a.chainId?.toLowerCase()===market.chainId?.toLowerCase() :
+        !a.pairAddress) &&
       !a.triggered && !a.paused && Number.isFinite(a.targetPrice) && a.targetPrice > 0 &&
       (a.condition === 'cross_above'
         ? previous < a.targetPrice && price >= a.targetPrice
@@ -331,11 +336,11 @@ export default function App() {
   // Poll dormant/inactive-chart alerts at their exact venue. These snapshots
   // are not tick streams; users must keep the browser open for notifications.
   const monitoredAlertKeys = alerts.filter(a=>!a.triggered&&!a.paused&&!!a.exchange)
-    .map(a=>[a.symbol,a.exchange,a.marketType||''].join('|')).sort().join('~');
+    .map(alertMarketIdentity).sort().join('~');
   useEffect(() => {
     const wanted = new Set(monitoredAlertKeys.split('~').filter(Boolean));
-    const selectedKey = assetIdentity(activeAsset);
-    const targets = assets.filter(a=>wanted.has(assetIdentity(a))&&assetIdentity(a)!==selectedKey);
+    const selectedKey = alertMarketIdentity(activeAsset);
+    const targets = assets.filter(a=>wanted.has(alertMarketIdentity(a))&&alertMarketIdentity(a)!==selectedKey);
     if (!targets.length) return;
     let stopped=false, cursor=0;
     const poll = async () => {
@@ -1044,7 +1049,7 @@ export default function App() {
     setRecentTrades([]);
     // A new stream must establish its own first observed price before a
     // crossing can be computed; a stale prior subscription must not trigger.
-    delete previousAlertPricesRef.current[assetIdentity(activeAsset)];
+    delete previousAlertPricesRef.current[alertMarketIdentity(activeAsset)];
 
     // 4. Subscribe to Real Market Data (Binance WebSocket for crypto, high-precision feed for others)
     const unsubscribe = subscribeRealMarketData(activeAsset, activeTimeframe, {

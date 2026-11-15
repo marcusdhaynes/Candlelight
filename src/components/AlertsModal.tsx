@@ -33,6 +33,8 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
       symbol: activeAsset.symbol,
       exchange: activeAsset.source || activeAsset.exchange,
       marketType: activeAsset.marketType,
+      pairAddress: activeAsset.pairAddress,
+      chainId: activeAsset.chainId,
       targetPrice: priceNum,
       condition,
       createdAt: Date.now(),

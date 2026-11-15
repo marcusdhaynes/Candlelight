@@ -165,6 +165,8 @@ export interface PriceAlert {
   /** Exact venue identity; unbound legacy alerts cannot fire on unrelated venues. */
   exchange?: string;
   marketType?: Asset['marketType'];
+  pairAddress?: string;
+  chainId?: string;
   targetPrice: number;
   condition: 'cross_above' | 'cross_below';
   createdAt: number;

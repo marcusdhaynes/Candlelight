@@ -3,6 +3,11 @@ import type {ChartWindowState} from '../types/layout';
 export const marketIdentity=(a:Pick<Asset,'symbol'|'exchange'|'source'|'marketType'>):string=>
  [a.symbol,a.source||a.exchange,a.marketType||''].join('|');
 export const chartIdentity=(a:Asset,tf:string):string=>marketIdentity(a)+'|'+tf;
+export const alertMarketIdentity=(market:{
+  symbol:string;exchange?:string;source?:string;marketType?:Asset['marketType'];
+  pairAddress?:string;chainId?:string;
+}):string=>[market.symbol,market.source||market.exchange||'',market.marketType||'',
+  market.chainId?.toLowerCase()||'',market.pairAddress?.toLowerCase()||''].join('|');
 export function resolveWindowAsset(win:ChartWindowState,assets:Asset[],selected?:Asset):Asset|undefined {
  if(!win.source&&selected?.symbol===win.symbol)return selected;
  const matches=assets.filter(a=>a.symbol===win.symbol);
