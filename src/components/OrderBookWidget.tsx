@@ -33,6 +33,7 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
   const bestAsk = asks.length > 0 ? asks[0].price : currentPrice;
   const bestBid = bids.length > 0 ? bids[0].price : currentPrice;
   const spread = Math.max(0, bestAsk - bestBid);
+  const midMarket=(bids.length&&asks.length)?(bestAsk+bestBid)/2:currentPrice;
   const spreadPct = bestBid > 0 ? ((spread / bestBid) * 100).toFixed(3) : '0.000';
 
   return (
@@ -106,7 +107,7 @@ export const OrderBookWidget: React.FC<OrderBookWidgetProps> = React.memo(({
           {/* Mid Market Spread Bar */}
           <div className="py-1 px-2 bg-[#1e222d] border-y border-[#2a2e39] flex items-center justify-between font-mono">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-[#d1d4dc]">{currentPrice.toFixed(digits)}</span>
+              <span className="text-xs font-bold text-[#d1d4dc]">{midMarket.toFixed(digits)}</span>
               <span className="text-[9px] text-[#787b86]">Mid</span>
             </div>
             <div className="text-[9px] text-[#787b86]">

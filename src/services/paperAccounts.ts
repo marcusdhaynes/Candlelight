@@ -60,6 +60,24 @@ export function loadPaperAccounts():PaperAccountsState{
   return initialPaperAccounts();
 }
 export function savePaperAccounts(state:PaperAccountsState):void{
+  // Never destroy an unreadable earlier ledger by silently initializing blank
+  // data on startup. Preserve the original bytes for manual recovery first.
+  const prior=localStorage.getItem(PAPER_ACCOUNTS_STORAGE_KEY);
+  if(prior){
+    let valid=false;
+    try{
+      const parsed=JSON.parse(prior);
+      valid=Array.isArray(parsed?.accounts)&&parsed.accounts.length>0 &&
+        parsed.accounts.every((a:any)=>a&&typeof a.id==='string'&&
+          Array.isArray(a.portfolio?.positions)&&Array.isArray(a.portfolio?.fills));
+    }catch{}
+    if(!valid){
+      const backupKey='candlelight_paper_accounts_corrupt_backup_v1';
+      if(!localStorage.getItem(backupKey))
+        localStorage.setItem(backupKey,prior);
+      throw new Error('Unrecognized paper ledger preserved for recovery; refusing to overwrite.');
+    }
+  }
   localStorage.setItem(PAPER_ACCOUNTS_STORAGE_KEY,JSON.stringify(state));
 }
 export function updateActivePaperAccount(
