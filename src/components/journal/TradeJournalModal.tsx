@@ -52,10 +52,22 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   isOpen,
   onClose,
   currentSymbol = '#BTCUSDT',
-  startingBalance = 0,
 }) => {
   // Default to 'trades' tab to immediately display the grid view requested in image.png
   const [activeTab, setActiveTab] = useState<JournalTab>('trades');
+  // Manual journal entries are independent of the currently selected paper account.
+  const [journalOpeningBalance,setJournalOpeningBalance]=useState<number>(()=>{
+    try{
+      const value=Number(localStorage.getItem('candlelight_journal_opening_balance_v1'));
+      return Number.isFinite(value)&&value>=0?value:0;
+    }catch{return 0;}
+  });
+  const changeJournalOpeningBalance=(value:number)=>{
+    if(!Number.isFinite(value)||value<0)return;
+    setJournalOpeningBalance(value);
+    try{localStorage.setItem('candlelight_journal_opening_balance_v1',String(value));}
+    catch(e){console.warn('Journal opening balance could not be saved',e);}
+  };
   const [trades, setTrades] = useState<JournalTrade[]>(() => {
     const saved = localStorage.getItem('tradingview_journal_trades');
     if (saved) {
@@ -411,7 +423,7 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
   if (!isOpen) return null;
 
   // Recalculate stats dynamically
-  const stats = calculateJournalStats(trades,startingBalance);
+  const stats = calculateJournalStats(trades,journalOpeningBalance);
   const waveScore = calculateWaveScore(trades);
 
   const handleAddTrade = (newTrade: JournalTrade) => {
@@ -861,6 +873,14 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
 
           {/* MAIN BODY AREA */}
           <div className="flex-1 flex flex-col overflow-hidden bg-[#0f131c] min-w-0">
+            <div className="flex items-center justify-end gap-2 px-3 py-1 bg-[#111823] border-b border-[#242d3c] text-[10px] text-[#a4b0c2]">
+              <label htmlFor="journal-opening-balance">Independent Journal Opening Balance</label>
+              <input id="journal-opening-balance" type="number" min="0" step="0.01"
+                value={journalOpeningBalance}
+                onChange={e=>changeJournalOpeningBalance(Number(e.target.value))}
+                className="w-28 px-2 py-1 rounded bg-[#1b2534] border border-[#3b4658] text-[#eff2ff] font-mono"
+                title="Manual journal starting balance; separate from paper trading accounts"/>
+            </div>
             {/* Tab Views */}
             <div className="flex-1 overflow-hidden relative">
               {activeTab === 'trades' && (

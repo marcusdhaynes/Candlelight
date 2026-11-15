@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { JournalTrade, JournalSide, JournalStatus } from '../../types';
 import { SAMPLE_SETUPS_LIST, SAMPLE_MISTAKES_LIST } from '../../data/sampleJournalTrades';
+import {localJournalTimestamp} from '../../services/journalTimes';
 import {
   X,
   Plus,
@@ -181,8 +182,8 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       symbol: symbol.startsWith('#') ? symbol : `#${symbol}`,
       side,
       status:computedStatus,
-      openDate: tradeToEdit ? tradeToEdit.openDate : new Date().toISOString().replace('T', ' ').slice(0, 19),
-      closeDate: exit ? (tradeToEdit?.closeDate || new Date().toISOString().replace('T', ' ').slice(0, 19)) : undefined,
+      openDate: tradeToEdit ? tradeToEdit.openDate : localJournalTimestamp(),
+      closeDate: exit ? (tradeToEdit?.closeDate || localJournalTimestamp()) : undefined,
       entryPrice: entry,
       exitPrice: exit,
       size: qty,

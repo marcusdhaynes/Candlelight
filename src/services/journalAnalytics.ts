@@ -410,7 +410,8 @@ export function getCalendarMonthData(
   const totalMonthReturn = Number(currentMonthDays.reduce((acc, d) => acc + d.netReturn, 0).toFixed(2));
   const totalMonthTrades = currentMonthDays.reduce((acc, d) => acc + d.tradeCount, 0);
   const totalMonthWins = currentMonthDays.reduce((acc, d) => acc + d.winCount, 0);
-  const monthWinRate = totalMonthTrades > 0 ? Number(((totalMonthWins / totalMonthTrades) * 100).toFixed(1)) : 0;
+  const closedMonthTrades = currentMonthDays.reduce((acc,d)=>acc+d.trades.filter(t=>t.status!=='OPEN').length,0);
+  const monthWinRate = closedMonthTrades > 0 ? Number(((totalMonthWins / closedMonthTrades) * 100).toFixed(1)) : 0;
 
   return {
     weeks,

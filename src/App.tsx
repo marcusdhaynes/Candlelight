@@ -1568,7 +1568,7 @@ export default function App() {
             <Bell className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-xs font-semibold text-white">Price Alert Notification</div>
+            <div className="text-xs font-semibold text-white">{activeNotification.type==='alert'?'Price Alert Notification':'Candlelight Notice'}</div>
             <div className="text-xs text-[#d1d4dc] mt-0.5">{activeNotification.message}</div>
           </div>
           <button
@@ -1621,7 +1621,6 @@ export default function App() {
         isOpen={isTradeJournalOpen}
         onClose={() => setIsTradeJournalOpen(false)}
         currentSymbol={activeAsset.symbol}
-        startingBalance={paperPortfolio.settings.startingBalance}
       />
 
       <ChartPictureInPicture

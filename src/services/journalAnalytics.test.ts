@@ -29,5 +29,6 @@ const cal=getCalendarMonthData(data,2026,11);
 assert.equal(cal.totalMonthReturn,50);
 assert.equal(cal.totalMonthWins,1);
 assert.equal(cal.totalMonthTrades,3);
+assert.equal(cal.monthWinRate,50);
 assert.equal(calculateJournalStats([t('legacy','LOSS',10,'2026-11-04','2026-11-05')],1000).winTrades,1);
 console.log('Realized journal chronology, drawdown, streak and calendar tests passed.');

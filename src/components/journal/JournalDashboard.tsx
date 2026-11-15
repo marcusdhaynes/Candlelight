@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { JournalTrade, WaveScoreData } from '../../types';
 import { JournalStats, getCalendarMonthData, CalendarDaySummary, calculateJournalStats, calculateWaveScore } from '../../services/journalAnalytics';
+import {journalTradeDate} from '../../services/journalTimes';
 import { WaveScoreRadar } from './WaveScoreRadar';
 import { JournalLayoutSettings } from './JournalGridSettingsModal';
 import {
@@ -98,12 +99,17 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
     else if(dateRange==='Year to Date')from.setFullYear(now.getFullYear(),0,1);
     from.setHours(0,0,0,0);
     return trades.filter(t=>{
-      const date=new Date((t.closeDate||t.openDate).replace(' ','T'));
+      const date=journalTradeDate(t.closeDate||t.openDate);
       return Number.isFinite(date.getTime())&&date>=from&&date<=now;
     });
   },[trades,dateRange]);
-  const displayStats=useMemo(()=>dateRange==='All Time'?stats:
-    calculateJournalStats(visibleTrades,stats.startingBalance),[dateRange,stats,visibleTrades]);
+  const displayStats=useMemo(()=>{
+    if(dateRange==='All Time')return stats;
+    const periodReturn=visibleTrades.filter(t=>t.status!=='OPEN')
+      .reduce((sum,t)=>sum+t.netReturn,0);
+    const opening=stats.currentBalance-periodReturn;
+    return calculateJournalStats(visibleTrades,Math.max(0,opening));
+  },[dateRange,stats,visibleTrades]);
   const displayWaveScore=useMemo(()=>dateRange==='All Time'?waveScore:
     calculateWaveScore(visibleTrades),[dateRange,waveScore,visibleTrades]);
   const monthData = useMemo(() => {
@@ -378,7 +384,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                   {displayStats.totalTrades}
                 </div>
                 <div className="text-[10px] text-[#00ffa3] font-mono mt-0.5 font-semibold">
-                  {trades.filter(t=>new Date(t.openDate.replace(' ','T')).getTime()>=Date.now()-7*86400000).length} in last 7 days
+                  {trades.filter(t=>journalTradeDate(t.openDate).getTime()>=Date.now()-7*86400000).length} in last 7 days
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1">
