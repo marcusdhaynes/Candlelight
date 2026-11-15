@@ -19,7 +19,7 @@ const positive=(n:unknown)=>typeof n==='number'&&Number.isFinite(n)&&n>0;
 const finite=(n:unknown)=>typeof n==='number'&&Number.isFinite(n);
 const nonnegative=(n:unknown)=>finite(n)&&Number(n)>=0;
 const maybe=(n:unknown,test:(x:unknown)=>boolean)=>n===undefined||test(n);
-const validMarketType=(v:unknown)=>v==='spot'||v==='swap'||v==='futures';
+const validMarketType=(v:unknown)=>['spot','swap','futures','index','stock','fund','forex','bond','economy','option'].includes(String(v));
 const validSide=(v:unknown)=>v==='Long'||v==='Short';
 const validPortfolioPosition=(p:unknown):boolean=>{
   if(!object(p)||typeof p.id!=='string'||!p.id||typeof p.symbol!=='string'||!p.symbol||
@@ -109,7 +109,7 @@ export function isStoredPaperLedgerValid(raw:unknown):raw is PaperAccountsState{
          Array.isArray(order.conditions)&&order.conditions.every((c:unknown)=>object(c)&&
            typeof c.dependencyType==='string'&&typeof c.operator==='string')&&
          object(order.execution)&&positive(order.execution.size)&&
-         ['active','paused','triggered'].includes(order.status)&&
+         ['active','paused','triggered','cancelled'].includes(order.status)&&
          nonnegative(order.triggerCount)&&positive(order.maxTriggers)&&
          nonnegative(order.createdAt)&&maybe(order.lastTriggeredAt,nonnegative))))return false;
   }

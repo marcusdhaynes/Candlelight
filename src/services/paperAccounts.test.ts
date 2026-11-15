@@ -53,4 +53,9 @@ const badPending={...valid,accounts:valid.accounts.map(record=>({...record,portf
  ...record.portfolio,pendingOrders:[{id:'p2',symbol:'ABCUSD',exchange:'Example',
  marketType:'spot',side:'Long',kind:'limit',qty:1,price:90,leverage:-3,createdAt:1,status:'pending'}]}}))};
 assert.equal(isStoredPaperLedgerValid(badPending),false);
+const stockPosition={...legacyPosition,marketType:'stock'};
+const stockLedger={...valid,accounts:valid.accounts.map(rec=>({...rec,portfolio:{
+ ...rec.portfolio,positions:[stockPosition]}}))};
+assert.equal(isStoredPaperLedgerValid(stockLedger),true);
+
 console.log('Paper ledger quarantine and overwrite prevention tests passed.');
