@@ -72,6 +72,7 @@ export interface ConditionalOrder {
   createdAt: number;
   triggeredAt?: number;
   lastTriggeredAt?: number;
+  lastConditionSatisfied?: boolean;
   triggerCount: number;
   maxTriggers: number; // 1 for IF/AND/OR, unlimited (9999) for WHENEVER
   notes?: string;
