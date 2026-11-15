@@ -25,7 +25,7 @@ export interface BottomTradingPanelProps {
   orderEvents:PaperOrderEvent[];
   onCancelPendingOrder:(id:string)=>void;
   onEditPosition:(id:string,tp?:number,sl?:number,trailing?:number|null)=>void;
-  onResetPaper:()=>void; onResolvePaperRecovery:()=>void; paperError:string; fills:PaperFill[];
+  onResetPaper:()=>void; onResolvePaperRecovery:()=>void; paperError:string;paperTradingBlocked:boolean; fills:PaperFill[];
   conditionalOrders:ConditionalOrder[];
   onOpenCreateConditionalOrder:(dep?:DependencyContext|null)=>void;
   onEditConditionalOrder:(order:ConditionalOrder)=>void;
@@ -45,7 +45,7 @@ const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFract
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
-  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,fills,
+  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,paperTradingBlocked,fills,
   onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
@@ -59,7 +59,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
   const activeLeverage=accountLeverage(paperSettings,activeAsset);
   const activeCategory=marketPaperCategory(activeAsset);
   const feeDescription=(()=>{
-    const derivative=activeAsset.category==='futures'||activeAsset.category==='options'||activeAsset.marketType==='futures';
+    const derivative=activeAsset.category==='futures'||activeAsset.category==='options'||activeAsset.marketType==='futures'||activeAsset.marketType==='swap';
     if(derivative&&paperSettings.futuresOptions.enabled)
       return paperSettings.futuresOptions.perContract.toString()+' '+paperSettings.currency+' per contract / fill';
     const c=paperSettings.commission;
@@ -155,7 +155,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       <span className={live?'text-[#089981]':'text-[#f4b77c]'}>{live?'Live reference '+amount(activeAsset.price)+' '+activeAsset.currency:'Live price unavailable'}</span>
       <span className="text-[#aeb7ca]">{activeCategory} · {activeLeverage}×</span>
       <span className="text-[#9299aa]">{feeDescription}</span>
-      <button type="button" onClick={onOpenTicket} className="rounded bg-[#2862fb] px-3 py-1.5 font-semibold text-white hover:bg-[#477bf9]">Create order</button>
+      <button type="button" disabled={paperTradingBlocked} title={paperTradingBlocked?'Trading locked until storage recovery':'Create simulated order'} onClick={onOpenTicket} className="disabled:opacity-40 disabled:cursor-not-allowed rounded bg-[#2862fb] px-3 py-1.5 font-semibold text-white hover:bg-[#477bf9]">Create order</button>
       <button type="button" className="ml-auto px-2 py-1 border border-[#5e5460] rounded hover:bg-[#393342]"
         onClick={()=>{if(window.confirm('Reset '+account.name+' and erase all its positions, pending orders, fills and conditional rules?'))onResetPaper();}}>Reset account</button>
     </div>
@@ -163,6 +163,7 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       An old unreadable paper ledger was preserved. It cannot be loaded safely. <button type="button" className="underline font-semibold" onClick={exportRecoveredLedger}>Export recovery backup</button>
       <button type="button" className="underline font-semibold ml-3" onClick={onResolvePaperRecovery}>Start fresh (keep backup)</button>
     </div>}
+    {paperTradingBlocked&&<div role="alert" className="px-3 py-1.5 text-[11px] font-semibold text-[#ffd1a5] bg-[#3a2a22]">Paper execution, updates, and conditional orders are locked until the saved ledger is recoverable.</div>}
     {paperError&&<div role="alert" className="px-3 py-1 text-[11px] text-[#ffc5c5] bg-[#51202b]">{paperError}</div>}
     <nav className="flex flex-wrap items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
       {tabs.map(([id,name])=><button type="button" key={id} onClick={()=>setTab(id)}

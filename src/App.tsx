@@ -360,7 +360,18 @@ export default function App() {
 
 
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
-  const [paperAccounts,setPaperAccounts]=useState<PaperAccountsState>(loadPaperAccounts);
+  const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(loadPaperAccounts);
+  const [paperStorageWriteFailed,setPaperStorageWriteFailed]=useState(false);
+  const paperTradingBlocked=isPaperStorageBlocked()||paperStorageWriteFailed;
+  // Every source of account changes (tickets, rules, fills, tick subscriptions)
+  // passes through this fail-closed gate. Recovering a broken ledger is explicit.
+  const setPaperAccounts:typeof setPaperAccountsRaw=(change)=>{
+    if(isPaperStorageBlocked()||paperStorageWriteFailed){
+      setPaperError('Paper trading is locked while ledger recovery or persistence repair is required.');
+      return;
+    }
+    setPaperAccountsRaw(change);
+  };
   const activePaperRecord=paperAccounts.accounts.find(a=>a.id===paperAccounts.activeId)||paperAccounts.accounts[0];
   const paperPortfolio=activePaperRecord.portfolio;
   const {account:paperAccount,positions:paperPositions,fills:paperFills}=paperPortfolio;
@@ -378,7 +389,8 @@ export default function App() {
     if(!window.confirm('An unreadable paper ledger was backed up. Starting fresh permanently replaces the damaged active ledger. Export the backup first. Continue?'))return;
     try{
       localStorage.removeItem(PAPER_ACCOUNTS_STORAGE_KEY);
-      setPaperAccounts(initialPaperAccounts());
+      setPaperAccountsRaw(initialPaperAccounts());
+      setPaperStorageWriteFailed(false);
       setPaperError('Fresh paper account created. Original unreadable ledger remains in the recovery backup.');
     }catch(e){setPaperError('Storage unavailable; recovery cannot be completed.');}
   };
@@ -549,6 +561,7 @@ export default function App() {
   };
   useEffect(()=>{try{savePaperAccounts(paperAccounts);}
     catch(e){console.warn('Unable to persist paper accounts',e);
+      setPaperStorageWriteFailed(true);
       setPaperError(e instanceof Error?e.message:'Paper account saving is blocked.');}
   },[paperAccounts]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
@@ -1488,6 +1501,7 @@ export default function App() {
             onResolvePaperRecovery={resolvePaperRecovery}
           onResetPaper={handleResetPaper}
             paperError={paperError}
+            paperTradingBlocked={paperTradingBlocked}
             fills={paperFills}
             conditionalOrders={conditionalOrders}
             onOpenCreateConditionalOrder={handleOpenCreateConditionalOrder}

@@ -72,8 +72,15 @@ closeTo(percentPortfolio.fills[0].fee,0.08);
 const percentClosed=closePaperPosition(percentPortfolio,percentPortfolio.positions[0].id,110,undefined,now+1000);
 closeTo(percentClosed.fills[0].fee,0.088);
 const future={...asset,category:'futures' as const,marketType:'futures' as const};
+const derivative={...asset,category:'crypto' as const,marketType:'swap' as const};
+const derivativeSettings=normalizePaperSettings({marginControl:true,leverages:{
+ ...DEFAULT_PAPER_SETTINGS.leverages,crypto:3,futures:17}});
+assert.equal(accountLeverage(derivativeSettings,derivative),17);
+assert.equal(accountLeverage(derivativeSettings,asset),3);
 const futureSettings=normalizePaperSettings({futuresOptions:{enabled:true,perContract:1.5}});
 closeTo(paperCommission(futureSettings,future,4,100),6);
+closeTo(paperCommission(futureSettings,derivative,4,100),6);
+closeTo(paperCommission(futureSettings,asset,4,100),0);
 const futureOpen=placePaperPosition(emptyPaperPortfolio(futureSettings),future,'Long',2,1,undefined,undefined,now);
 closeTo(futureOpen.fills[0].fee,3);
 assert.equal(configurePaperPortfolio(empty,normalizePaperSettings({startingBalance:12000}),'Second').account.balance,12000);

@@ -25,17 +25,17 @@ export function normalizePaperSettings(raw?:Partial<PaperSettings>):PaperSetting
 }
 export function marketPaperCategory(asset:Asset):keyof PaperSettings['leverages']{
   if (asset.category==='stocks'||asset.category==='funds')return 'stocks';
-  if (asset.category==='crypto')return 'crypto';
-  if (asset.category==='forex')return 'forex';
   if (asset.category==='futures'||asset.category==='options'||
       asset.marketType==='futures'||asset.marketType==='swap')return 'futures';
+  if (asset.category==='crypto')return 'crypto';
+  if (asset.category==='forex')return 'forex';
   return 'others';
 }
 export function accountLeverage(settings:PaperSettings,asset:Asset):number{
   return settings.marginControl?settings.leverages[marketPaperCategory(asset)]:1;
 }
 export function paperCommission(settings:PaperSettings,asset:Pick<Asset,'category'|'marketType'>,quantity:number,price:number):number{
-  if (asset.category==='futures'||asset.category==='options'||asset.marketType==='futures') {
+  if (asset.category==='futures'||asset.category==='options'||asset.marketType==='futures'||asset.marketType==='swap') {
     if(settings.futuresOptions.enabled)return settings.futuresOptions.perContract*quantity;
   }
   const c=settings.commission;
