@@ -57,7 +57,7 @@ import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity} from './services/marketIdentity';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
-import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, type PaperAccountsState } from './services/paperAccounts';
+import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
 
 const assetIdentity = (a: Asset) => [a.symbol, a.source || a.exchange, a.marketType || ''].join('|');
 function readLocalJson<T>(key: string, fallback: T): T {
@@ -345,7 +345,17 @@ export default function App() {
   const setConditionalOrders=(action:ConditionalOrder[]|((prev:ConditionalOrder[])=>ConditionalOrder[]))=>
     setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>({...record,
       orders:typeof action==='function'?action(record.orders):action})));
-  const [paperError,setPaperError]=useState('');
+  const [paperError,setPaperError]=useState(()=>
+    isPaperStorageBlocked()?'Saved paper ledger is unreadable. Export its backup before starting a new account.':'');
+  const resolvePaperRecovery=()=>{
+    if(!isPaperStorageBlocked())return;
+    if(!window.confirm('An unreadable paper ledger was backed up. Starting fresh permanently replaces the damaged active ledger. Export the backup first. Continue?'))return;
+    try{
+      localStorage.removeItem(PAPER_ACCOUNTS_STORAGE_KEY);
+      setPaperAccounts(initialPaperAccounts());
+      setPaperError('Fresh paper account created. Original unreadable ledger remains in the recovery backup.');
+    }catch(e){setPaperError('Storage unavailable; recovery cannot be completed.');}
+  };
   const [closeReviewId,setCloseReviewId]=useState<string|null>(null);
   const [closeReviewQty,setCloseReviewQty]=useState('');
   const previousRulePrices=useRef<Record<string,number>>({});
@@ -511,7 +521,10 @@ export default function App() {
     });
     setPaperError('');
   };
-  useEffect(()=>{try{savePaperAccounts(paperAccounts);}catch(e){console.warn('Unable to persist paper accounts',e);}},[paperAccounts]);
+  useEffect(()=>{try{savePaperAccounts(paperAccounts);}
+    catch(e){console.warn('Unable to persist paper accounts',e);
+      setPaperError(e instanceof Error?e.message:'Paper account saving is blocked.');}
+  },[paperAccounts]);
   const [isBottomTradingOpen, setIsBottomTradingOpen] = useState(false);
   const [isTradeTicketOpen,setIsTradeTicketOpen]=useState(false);
   const [tradeTicketAccountSettings,setTradeTicketAccountSettings]=useState(false);
@@ -1435,7 +1448,8 @@ export default function App() {
             onCancelPendingOrder={handleCancelPendingOrder}
             activeAsset={activeAsset}
             onEditPosition={handleEditPaperStops}
-            onResetPaper={handleResetPaper}
+            onResolvePaperRecovery={resolvePaperRecovery}
+          onResetPaper={handleResetPaper}
             paperError={paperError}
             fills={paperFills}
             conditionalOrders={conditionalOrders}

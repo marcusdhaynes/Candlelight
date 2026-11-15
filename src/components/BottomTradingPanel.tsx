@@ -7,6 +7,7 @@ import type {PaperFill} from '../services/paperTrading';
 import {accountLeverage,isFreshPaperQuote,marketPaperCategory,type PaperSettings} from '../services/paperTrading';
 import type {PaperEntryOrder,PaperOrderEvent} from '../services/paperOrders';
 import type {PaperAccountRecord} from '../services/paperAccounts';
+import {isPaperStorageBlocked} from '../services/paperAccounts';
 import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
 
@@ -24,7 +25,7 @@ export interface BottomTradingPanelProps {
   orderEvents:PaperOrderEvent[];
   onCancelPendingOrder:(id:string)=>void;
   onEditPosition:(id:string,tp?:number,sl?:number,trailing?:number|null)=>void;
-  onResetPaper:()=>void; paperError:string; fills:PaperFill[];
+  onResetPaper:()=>void; onResolvePaperRecovery:()=>void; paperError:string; fills:PaperFill[];
   conditionalOrders:ConditionalOrder[];
   onOpenCreateConditionalOrder:(dep?:DependencyContext|null)=>void;
   onEditConditionalOrder:(order:ConditionalOrder)=>void;
@@ -44,7 +45,7 @@ const cash=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{minimumFract
 const amount=(n:number)=>Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:9}):'—';
 
 export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
-  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,paperError,fills,
+  account,positions,activeAsset,onClosePosition,onEditPosition,onResetPaper,onResolvePaperRecovery,paperError,fills,
   onOpenTicket,pendingOrders,orderEvents,onCancelPendingOrder,
   paperAccounts,activePaperAccountId,paperSettings,onSelectPaperAccount,onSavePaperAccount,onDeletePaperAccount,
   conditionalOrders,onOpenCreateConditionalOrder,onEditConditionalOrder,onToggleConditionalOrderStatus,
@@ -158,8 +159,9 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       <button type="button" className="ml-auto px-2 py-1 border border-[#5e5460] rounded hover:bg-[#393342]"
         onClick={()=>{if(window.confirm('Reset '+account.name+' and erase all its positions, pending orders, fills and conditional rules?'))onResetPaper();}}>Reset account</button>
     </div>
-    {corruptBackup&&<div role="alert" className="px-3 py-1.5 text-[11px] text-[#ffd1a5] bg-[#3a2a22]">
+    {corruptBackup&&isPaperStorageBlocked()&&<div role="alert" className="px-3 py-1.5 text-[11px] text-[#ffd1a5] bg-[#3a2a22]">
       An old unreadable paper ledger was preserved. It cannot be loaded safely. <button type="button" className="underline font-semibold" onClick={exportRecoveredLedger}>Export recovery backup</button>
+      <button type="button" className="underline font-semibold ml-3" onClick={onResolvePaperRecovery}>Start fresh (keep backup)</button>
     </div>}
     {paperError&&<div role="alert" className="px-3 py-1 text-[11px] text-[#ffc5c5] bg-[#51202b]">{paperError}</div>}
     <nav className="flex flex-wrap items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
