@@ -12,10 +12,14 @@ import {PaperAccountModal} from './PaperAccountModal';
 import {ConditionalOrdersTable} from './orders/ConditionalOrdersTable';
 import {RiskCenterPanel} from './RiskCenterPanel';
 import {summarizePaperAccounts} from '../services/portfolioAnalytics';
-import {MarketScreenerPanel} from './MarketScreenerPanel';
-import {MarketDataHealthPanel} from './MarketDataHealthPanel';
-import {CloudSyncPanel} from './CloudSyncPanel';
-import {ReplayBacktestPanel} from './ReplayBacktestPanel';
+const MarketScreenerPanel=React.lazy(()=>import('./MarketScreenerPanel')
+  .then(m=>({default:m.MarketScreenerPanel})));
+const MarketDataHealthPanel=React.lazy(()=>import('./MarketDataHealthPanel')
+  .then(m=>({default:m.MarketDataHealthPanel})));
+const CloudSyncPanel=React.lazy(()=>import('./CloudSyncPanel')
+  .then(m=>({default:m.CloudSyncPanel})));
+const ReplayBacktestPanel=React.lazy(()=>import('./ReplayBacktestPanel')
+  .then(m=>({default:m.ReplayBacktestPanel})));
 import type {Timeframe} from '../types';
 import type {FeedHealth} from '../services/marketEvents';
 import type {RiskPolicy} from '../services/riskCenter';
@@ -293,10 +297,14 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
           <strong className={f.realizedPnL>=0?'text-[#089981]':'text-[#f23645]'}>{cash(f.realizedPnL)} {paperSettings.currency}</strong>
         </div>):<p className="p-5 text-[#8792a6]">No closed paper trades yet.</p>}
       </div>}
-      {tab==='cloud'&&<CloudSyncPanel/>}
-      {tab==='replay'&&<ReplayBacktestPanel asset={activeAsset} timeframe={activeTimeframe}/>} 
-      {tab==='screener'&&<MarketScreenerPanel assets={allMarkets} onSelect={onSelectScreenedMarket} onAdd={onAddScreenedMarket}/>}
-      {tab==='dataHealth'&&<MarketDataHealthPanel health={feedHealth} status={marketStatus}/>}
+      <React.Suspense fallback={<div role="status" className="p-4 text-[#adc6ec]">
+        Opening selected research workspace…
+      </div>}>
+        {tab==='cloud'&&<CloudSyncPanel/>}
+        {tab==='replay'&&<ReplayBacktestPanel asset={activeAsset} timeframe={activeTimeframe}/>}
+        {tab==='screener'&&<MarketScreenerPanel assets={allMarkets} onSelect={onSelectScreenedMarket} onAdd={onAddScreenedMarket}/>}
+        {tab==='dataHealth'&&<MarketDataHealthPanel health={feedHealth} status={marketStatus}/>}
+      </React.Suspense>
       {tab==='risk'&&<RiskCenterPanel portfolio={portfolio} asset={activeAsset} policy={riskPolicy} onChange={onRiskPolicyChange}/>}
       {tab==='analytics'&&<div className="p-4 flex flex-wrap gap-6">
         <span>Starting capital: {paperSettings.startingBalance.toLocaleString()} {paperSettings.currency}</span><span>Completed closes: {fills.filter(f=>f.note.toLowerCase().includes('close')).length}</span>

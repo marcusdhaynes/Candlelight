@@ -46,7 +46,8 @@ import { cancelPaperOrder,evaluatePaperOrders,expirePaperOrders,submitPaperOrder
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
 import { AlertsModal } from './components/AlertsModal';
-import { TradeJournalModal } from './components/journal/TradeJournalModal';
+const TradeJournalModal=React.lazy(()=>import('./components/journal/TradeJournalModal')
+  .then(mod=>({default:mod.TradeJournalModal})));
 import { ChartPictureInPicture, ChartPictureInPictureRef } from './components/ChartPictureInPicture';
 import { ConditionalOrder, DependencyContext } from './types';
 import { INITIAL_CONDITIONAL_ORDERS } from './data/initialConditionalOrders';
@@ -1975,11 +1976,14 @@ export default function App() {
       <SavedChartsModal open={isSavedChartsOpen} onClose={()=>setIsSavedChartsOpen(false)}
         asset={activeAsset} timeframe={activeTimeframe} chartType={chartType}
         drawings={drawings} indicators={indicators} onRestore={handleRestoreSavedChart}/>
-      <TradeJournalModal
-        isOpen={isTradeJournalOpen}
-        onClose={() => setIsTradeJournalOpen(false)}
-        currentSymbol={activeAsset.symbol}
-      />
+      {isTradeJournalOpen&&<React.Suspense fallback={
+        <div role="status" className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 text-white">
+          Opening Trade Journal…
+        </div>}>
+        <TradeJournalModal isOpen={isTradeJournalOpen}
+          onClose={()=>setIsTradeJournalOpen(false)}
+          currentSymbol={activeAsset.symbol}/>
+      </React.Suspense>}
 
       <ChartPictureInPicture
         ref={pipRef}
