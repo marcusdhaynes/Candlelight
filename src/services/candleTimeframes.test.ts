@@ -20,4 +20,11 @@ assert.deepEqual(grouped[0],{
 assert.equal(grouped[1].close,104);
 assert.equal(grouped[1].volume,4);
 assert.equal(resampleVerifiedCandles([c(0,101,1),c(1,102,2)],'1m').length,2);
-console.log('UTC calendar/timeframe aggregation tests passed.');
+// The current 3m interval must not masquerade as a complete historical bar.
+const three=[c(0,101,1),c(1,102,2),c(2,103,3)];
+assert.equal(resampleVerifiedCandles(three,'3m',60,time(2026,10,14,1)).length,1);
+assert.equal(resampleVerifiedCandles([three[0],three[2]],'3m',60,time(2026,10,14,1)).length,0);
+const month=(m:number):OHLCV=>({time:time(2026,m,1),open:100,high:101,low:99,close:100,volume:1});
+assert.equal(resampleVerifiedCandles([month(0),month(1),month(2)],'3M','1M',time(2026,3,2)).length,1);
+assert.equal(resampleVerifiedCandles([month(0),month(2)],'3M','1M',time(2026,3,2)).length,0);
+console.log('UTC calendar/timeframe aggregation tests passed, including incomplete source history.');

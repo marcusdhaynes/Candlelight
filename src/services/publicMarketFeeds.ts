@@ -62,6 +62,19 @@ const api = async (url: string) => {
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 };
+const nativePeriod=(value:string):number|'1M'=>{
+  if(value==='1M'||value==='M')return '1M';
+  if(value==='D'||value==='1D'||value==='1d')return 86400;
+  if(value==='W'||value==='1W'||value==='1w')return 604800;
+  const unit=value.slice(-1),num=Number(value.slice(0,-1));
+  if(Number.isFinite(num)&&num>0){
+    if(unit==='s')return num;
+    if(unit==='m')return num*60;
+    if(unit==='h'||unit==='H')return num*3600;
+    if(unit==='d')return num*86400;
+  }
+  const mins=Number(value);return Number.isFinite(mins)&&mins>0?mins*60:0;
+};
 const formatVolume = (n: number) => !Number.isFinite(n) ? '—' :
   n >= 1e9 ? (n/1e9).toFixed(2)+'B' : n >= 1e6 ? (n/1e6).toFixed(2)+'M' :
   n >= 1e3 ? (n/1e3).toFixed(1)+'K' : n.toFixed(2);
@@ -166,7 +179,7 @@ const cleanCandles = (candles: OHLCV[]) =>
 /** Market-specific historical candles. Never synthesize a derivative from a spot chart. */
 export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promise<OHLCV[]> {
   const source = sourceOf(a), s = marketOf(a);
-  const finish = (bars:OHLCV[]) => resampleVerifiedCandles(cleanCandles(bars),timeframe);
+  const finish = (bars:OHLCV[],sourcePeriod:number|'1M'=0) => resampleVerifiedCandles(cleanCandles(bars),timeframe,sourcePeriod);
   // Seconds are only available from venues with an actual 1-second historical feed.
   if (['1s','5s','15s','30s'].includes(timeframe) &&
       source!=='binance' && source!=='binance.us')return [];
@@ -183,12 +196,13 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         ['1D','1W','1M'].includes(timeframe) ? 'day' : 'hour';
       const aggregate = interval === 'minute' ? ({'1m':1,'3m':1,'5m':5,'15m':15,'30m':15,'45m':15} as Record<string,number>)[timeframe] :
         interval === 'day' ? 1 : ['4h'].includes(timeframe) ? 4 : 1;
+      const sourcePeriod=interval==='minute'?aggregate*60:interval==='hour'?aggregate*3600:86400;
       const data = await api('https://api.geckoterminal.com/api/v2/networks/' +
         encodeURIComponent(chain) + '/pools/' + encodeURIComponent(a.pairAddress) +
         '/ohlcv/' + interval + '?aggregate=' + aggregate + '&limit=300&currency=usd');
       return finish((data.data?.attributes?.ohlcv_list || []).map((k: any) => ({
         time: Number(k[0]), open: Number(k[1]), high: Number(k[2]),
-        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })),sourcePeriod);
     }
     if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol) {
       const hyperliquidBars:Record<string,string>={
@@ -207,7 +221,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
       const data = await res.json();
       return finish((Array.isArray(data) ? data : []).map((k:any) => ({
         time: Math.floor(Number(k.t)/1000), open: Number(k.o), high: Number(k.h),
-        low: Number(k.l), close: Number(k.c), volume: Number(k.v) || 0 })));
+        low: Number(k.l), close: Number(k.c), volume: Number(k.v) || 0 })),nativePeriod(interval));
     }
     if (source.startsWith('kraken')) {
       if (isKrakenDerivative(a)) {
@@ -217,12 +231,12 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
           '&resolution=' + resolution);
         return finish((data.candles || []).map((c: any) => ({
           time: Number(c.time), open: Number(c.open), high: Number(c.high),
-          low: Number(c.low), close: Number(c.close), volume: Number(c.volume) || 0 })));
+          low: Number(c.low), close: Number(c.close), volume: Number(c.volume) || 0 })),nativePeriod(resolution));
       }
       const interval=krakenBar[timeframe];
       if(!interval)return [];
       const data = await api('/api/kraken/ohlc?pair=' + encodeURIComponent(s) + '&interval=' + interval);
-      return finish(data.candles || []);
+      return finish(data.candles || [],interval*60);
     }
     if (source === 'coinbase') {
       const id = coinbaseSymbol(s); if (!id) return [];
@@ -232,7 +246,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         '/candles?granularity=' + granularity);
       return finish((Array.isArray(raw) ? raw : []).map((k: any) => ({
         time: Number(k[0]), open: Number(k[3]), high: Number(k[2]), low: Number(k[1]),
-        close: Number(k[4]), volume: Number(k[5]) || 0 })));
+        close: Number(k[4]), volume: Number(k[5]) || 0 })),granularity);
     }
     if (source === 'binance' || source === 'binance.us') {
       const host = source === 'binance' ? 'https://data-api.binance.vision' : 'https://api.binance.us';
@@ -242,7 +256,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         '&interval=' + interval + '&limit=1000');
       return finish((Array.isArray(raw) ? raw : []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
-        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })),nativePeriod(interval));
     }
     if (source === 'okx') {
       const interval=okxBar[timeframe];
@@ -251,7 +265,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         encodeURIComponent(s) + '&bar=' + interval + '&limit=300');
       return finish((data.data || []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
-        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })),nativePeriod(interval));
     }
     if (source === 'bybit') {
       const category = a.marketType === 'spot' ? 'spot' : 'linear';
@@ -261,7 +275,7 @@ export async function fetchPublicHistory(a: Asset, timeframe: Timeframe): Promis
         '&symbol=' + encodeURIComponent(s) + '&interval=' + interval + '&limit=1000');
       return finish((data.result?.list || []).map((k: any) => ({
         time: Math.floor(Number(k[0])/1000), open: Number(k[1]), high: Number(k[2]),
-        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })));
+        low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]) || 0 })),nativePeriod(interval));
     }
   } catch (e) { console.debug('Unavailable public history', a.source, a.symbol, e); }
   return [];
