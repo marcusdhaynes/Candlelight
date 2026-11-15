@@ -27,6 +27,8 @@ assert.equal(opened.positions.length,1);
 closeTo(opened.account.balance,10000);
 closeTo(opened.account.accountMargin,200);
 closeTo(opened.account.availableFunds,opened.account.equity-200);
+const wrongMarketMark=markPaperPositions(opened,{...asset,marketType:'swap',price:105,quoteUpdatedAt:now+999},now+999);
+assert.equal(wrongMarketMark,opened); // swap mark must not execute spot TP/SL or rewrite spot equity
 const marked=markPaperPositions(opened,{...asset,price:110,quoteUpdatedAt:now+1000},now+1000);
 closeTo(marked.positions[0].unrealizedPnL,20);
 closeTo(marked.account.equity,marked.account.balance+20);
