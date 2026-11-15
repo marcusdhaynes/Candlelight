@@ -57,6 +57,7 @@ import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {paperLedgerCriticalChanged} from './services/paperPersistence';
+import {createPaperWriterLease} from './services/paperTabOwnership';
 import {loadWatchlists,persistWatchlists,isWatchlistStorageBlocked,WATCHLIST_BACKUP_KEY,WATCHLIST_KEY,WATCHLIST_LEGACY_KEY} from './services/watchlistStorage';
 import { emptyPaperPortfolio, closePaperPosition, updatePaperStops, enableTrailingPaperStop, disableTrailingPaperStop, isFreshPaperQuote, accountLeverage, paperCommission, paperExecutionPrice, configurePaperPortfolio, type PaperPortfolio, type PaperSettings } from './services/paperTrading';
 import { loadPaperAccounts, savePaperAccounts, updateActivePaperAccount, createPaperAccountRecord, initialPaperAccounts,isPaperStorageBlocked,PAPER_ACCOUNTS_STORAGE_KEY, type PaperAccountsState } from './services/paperAccounts';
@@ -404,12 +405,16 @@ export default function App() {
   const [paperAccounts,setPaperAccountsRaw]=useState<PaperAccountsState>(()=>loadPaperAccounts(assets));
   const [paperStorageWriteFailed,setPaperStorageWriteFailed]=useState(false);
   const paperStorageBlockedRef=useRef(isPaperStorageBlocked());
-  const paperTradingBlocked=paperStorageBlockedRef.current||paperStorageWriteFailed;
+  const paperWriterOwnedRef=useRef(false);
+  const [paperWriterOwned,setPaperWriterOwned]=useState(false);
+  const paperTradingBlocked=paperStorageBlockedRef.current||paperStorageWriteFailed||!paperWriterOwned;
   // Every source of account changes (tickets, rules, fills, tick subscriptions)
   // passes through this fail-closed gate. Recovering a broken ledger is explicit.
   const setPaperAccounts:typeof setPaperAccountsRaw=(change)=>{
-    if(paperStorageBlockedRef.current||paperStorageWriteFailed){
-      setPaperError('Paper trading is locked while ledger recovery or persistence repair is required.');
+    if(paperStorageBlockedRef.current||paperStorageWriteFailed||!paperWriterOwnedRef.current){
+      setPaperError(!paperWriterOwnedRef.current?
+        'This tab is read-only. Another Candlelight tab owns paper trading, or secure Web Locks are unavailable.':
+        'Paper trading is locked while ledger recovery or persistence repair is required.');
       return;
     }
     setPaperAccountsRaw(change);
@@ -601,6 +606,35 @@ export default function App() {
     });
     setPaperError('');
   };
+  // A single browser tab may author simulated trades. Competing tabs are
+  // read-only and must reacquire the lock and reload the latest durable ledger.
+  useEffect(()=>{
+    const manager=typeof navigator!=='undefined'?navigator.locks:undefined;
+    const lease=createPaperWriterLease(manager,()=>{
+      paperWriterOwnedRef.current=false;
+      const blocked=isPaperStorageBlocked();
+      paperStorageBlockedRef.current=blocked;
+      if(blocked){
+        setPaperStorageWriteFailed(true);
+        setPaperError('Paper ledger needs recovery; this tab is locked.');
+        return;
+      }
+      const latest=loadPaperAccounts();
+      setPaperAccountsRaw(latest);
+      paperWriterOwnedRef.current=true;
+      setPaperWriterOwned(true);
+      setPaperStorageWriteFailed(false);
+      setPaperError('');
+    },()=>{
+      paperWriterOwnedRef.current=false;
+      setPaperWriterOwned(false);
+      setPaperError('Paper writer ownership was lost; trading locked until reacquired.');
+    });
+    if(!lease.supported)setPaperError('This browser lacks Web Locks: safe cross-tab paper trading is unavailable.');
+    lease.attempt();
+    const retry=window.setInterval(()=>lease.attempt(),2500);
+    return ()=>{window.clearInterval(retry);paperWriterOwnedRef.current=false;lease.release();};
+  },[]);
   // React's ordered state-updater queue processes every observed price tick,
   // but mark-to-market UI refreshes must not rewrite localStorage each tick.
   const latestPaperRef=useRef(paperAccounts);
@@ -611,7 +645,7 @@ export default function App() {
     if(paperWriteTimerRef.current!==null){
       window.clearTimeout(paperWriteTimerRef.current);paperWriteTimerRef.current=null;
     }
-    if(paperStorageBlockedRef.current)return;
+    if(paperStorageBlockedRef.current||!paperWriterOwnedRef.current)return;
     const latest=latestPaperRef.current;
     try{
       savePaperAccounts(latest);
@@ -634,11 +668,11 @@ export default function App() {
     const onHide=()=>persistPaperNow();
     const onStorage=(event:StorageEvent)=>{
       if(event.key!==PAPER_ACCOUNTS_STORAGE_KEY)return;
-      paperStorageBlockedRef.current=isPaperStorageBlocked();
-      if(paperStorageBlockedRef.current){
-        setPaperStorageWriteFailed(true);
-        setPaperError('Paper ledger changed in another tab and requires recovery; execution is locked.');
-      }
+      // Even structurally valid writes by another (possibly older) application
+      // must not be merged into our execution state without reconciliation.
+      paperStorageBlockedRef.current=true;
+      setPaperStorageWriteFailed(true);
+      setPaperError('Paper ledger was changed by another tab. Trading is locked to prevent overwrite; reload to reconcile.');
     };
     window.addEventListener('pagehide',onHide);
     window.addEventListener('storage',onStorage);

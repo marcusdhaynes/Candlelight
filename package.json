@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:paper": "tsx src/services/paperTrading.test.ts && tsx src/services/paperOrders.test.ts && tsx src/services/chartCandles.test.ts && tsx src/services/candleTimeframes.test.ts && tsx src/services/orderDepth.test.ts && tsx src/services/conditionalSafety.test.ts && tsx src/services/marketIdentity.test.ts && tsx src/services/journalAnalytics.test.ts && tsx src/services/conditionalEvaluation.test.ts && tsx src/services/paperAccounts.test.ts && tsx src/services/journalTimes.test.ts && tsx src/services/journalStorage.test.ts && tsx src/services/watchlistStorage.test.ts && tsx src/services/journalScenarios.test.ts && tsx src/services/paperPersistence.test.ts && tsx src/services/marketDiscovery.test.ts"
+    "test:paper": "tsx src/services/paperTrading.test.ts && tsx src/services/paperOrders.test.ts && tsx src/services/chartCandles.test.ts && tsx src/services/candleTimeframes.test.ts && tsx src/services/orderDepth.test.ts && tsx src/services/conditionalSafety.test.ts && tsx src/services/marketIdentity.test.ts && tsx src/services/journalAnalytics.test.ts && tsx src/services/conditionalEvaluation.test.ts && tsx src/services/paperAccounts.test.ts && tsx src/services/journalTimes.test.ts && tsx src/services/journalStorage.test.ts && tsx src/services/watchlistStorage.test.ts && tsx src/services/journalScenarios.test.ts && tsx src/services/paperPersistence.test.ts && tsx src/services/marketDiscovery.test.ts && tsx src/services/paperTabOwnership.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
