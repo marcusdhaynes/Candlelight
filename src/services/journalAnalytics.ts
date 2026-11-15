@@ -119,7 +119,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
       netReturn: t.netReturn,
     });
 
-    if (t.status === 'WIN') {
+    if (t.netReturn > 0) {
       if (currentTradeStreakIsWin) {
         currentTradeStreak++;
       } else {
@@ -127,7 +127,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
         currentTradeStreakIsWin = true;
       }
       if (currentTradeStreak > maxTradeWinStreak) maxTradeWinStreak = currentTradeStreak;
-    } else if (t.status === 'LOSS') {
+    } else if (t.netReturn < 0) {
       if (!currentTradeStreakIsWin) {
         currentTradeStreak++;
       } else {
@@ -135,7 +135,7 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
         currentTradeStreakIsWin = false;
       }
       if (currentTradeStreak > maxTradeLossStreak) maxTradeLossStreak = currentTradeStreak;
-    }
+    } else currentTradeStreak=0; // Break-even interrupts either streak.
   }
 
   // Daily Streak calculation
@@ -151,7 +151,8 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
   let maxDayLoss = 0;
 
   for (const d of daysList) {
-    const isWin = dayMap[d] >= 0;
+    const isWin = dayMap[d] > 0;
+    if(dayMap[d]===0){currentDayStreak=0;continue;}
     if (isWin) {
       if (currentDayIsWin) currentDayStreak++;
       else {

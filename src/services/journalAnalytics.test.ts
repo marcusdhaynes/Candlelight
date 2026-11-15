@@ -31,4 +31,11 @@ assert.equal(cal.totalMonthWins,1);
 assert.equal(cal.totalMonthTrades,3);
 assert.equal(cal.monthWinRate,50);
 assert.equal(calculateJournalStats([t('legacy','LOSS',10,'2026-11-04','2026-11-05')],1000).winTrades,1);
+const neutral=calculateJournalStats([
+ t('gain','LOSS',10,'2026-11-01','2026-11-01'),
+ t('flat','BE',0,'2026-11-02','2026-11-02'),
+ t('gain2','WIN',10,'2026-11-03','2026-11-03'),
+],1000);
+assert.equal(neutral.tradeStreak.maxWin,1);
+assert.equal(neutral.dayStreak.maxWin,1);
 console.log('Realized journal chronology, drawdown, streak and calendar tests passed.');
