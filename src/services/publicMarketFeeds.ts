@@ -314,6 +314,8 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
       candle.high = Math.max(candle.high,price); candle.low = Math.min(candle.low,price);
       candle.close = price; candle.volume += Math.max(size,0);
     }
+    // Every observed trade reaches risk evaluation synchronously. UI candles are batched.
+    cb.onPriceUpdate(price,undefined,undefined,'stream');
     pending = {price,size,side,origin:'stream'};
     if (live && Date.now() - lastBroadcast > 5000) {
       status(true,'live WebSocket');
@@ -329,7 +331,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     }
     if (!pending) return;
     const t = pending; pending = null;
-    cb.onPriceUpdate(t.price,undefined,undefined,t.origin);
+    if(t.origin==='snapshot')cb.onPriceUpdate(t.price,undefined,undefined,'snapshot');
     if(t.origin!=='stream'||!candle)return;
     cb.onCandleTick({ ...candle }, false);
     if (t.size > 0) cb.onTrade({ id: String(Date.now()), price: t.price, size: t.size, side: t.side, time: Date.now() });

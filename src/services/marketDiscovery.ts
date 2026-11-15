@@ -76,7 +76,7 @@ async function hyperliquid(): Promise<Asset[]> {
       const a = mk(p.name + '-USD.P', p.name, 'USD', source, 'swap');
       a.feedSymbol = p.name; a.isCex = false; a.isDefi = true;
       if (Number.isFinite(price) && price > 0) {
-        a.price = price; a.quoteStatus = 'live'; a.quoteUpdatedAt = Date.now();
+        a.price = price; a.quoteStatus = 'delayed'; a.quoteUpdatedAt = Date.now();
         a.volume24h = String(ctx?.dayNtlVlm || '—');
       }
       out.push(a);
@@ -92,7 +92,7 @@ async function hyperliquid(): Promise<Asset[]> {
       a.feedSymbol = p.name === 'PURR/USDC' ? p.name : '@' + i;
       a.isCex = false; a.isDefi = true;
       if (Number.isFinite(price) && price > 0) {
-        a.price = price; a.quoteStatus = 'live'; a.quoteUpdatedAt = Date.now();
+        a.price = price; a.quoteStatus = 'delayed'; a.quoteUpdatedAt = Date.now();
         a.volume24h = String(ctx?.dayNtlVlm || '—');
       }
       out.push(a);

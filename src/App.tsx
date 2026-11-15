@@ -285,7 +285,7 @@ export default function App() {
     const key = assetIdentity(market);
     const previous = previousAlertPricesRef.current[key];
     previousAlertPricesRef.current[key] = price;
-    if (market.pairAddress || !Number.isFinite(previous) || !Number.isFinite(price) || price <= 0) return;
+    if (!Number.isFinite(previous) || !Number.isFinite(price) || price <= 0) return [];
     const venue = market.source || market.exchange;
     const hits = alertsRef.current.filter(a => a.symbol === market.symbol &&
       a.exchange === venue && (!a.marketType || a.marketType === market.marketType) &&
@@ -293,7 +293,7 @@ export default function App() {
       (a.condition === 'cross_above'
         ? previous < a.targetPrice && price >= a.targetPrice
         : previous > a.targetPrice && price <= a.targetPrice));
-    if (!hits.length) return;
+    if (!hits.length) return [];
     const matched = new Set(hits.map(a => a.id));
     const updated = alertsRef.current.map(a => matched.has(a.id) ? {...a, triggered:true} : a);
     alertsRef.current = updated;
@@ -304,6 +304,7 @@ export default function App() {
     }));
     setAlertLog(prev => [...entries, ...prev].slice(0,100));
     setActiveNotification({id:String(now),message:entries[0].message,type:'alert'});
+    return hits.map(a=>a.id);
   }, []);
   // Poll dormant/inactive-chart alerts at their exact venue. These snapshots
   // are not tick streams; users must keep the browser open for notifications.
@@ -321,7 +322,7 @@ export default function App() {
       const quotes=await Promise.all(batch.map(a=>fetchRealTicker24h(a).catch(()=>null)));
       if(stopped)return;
       quotes.forEach((q,i)=>{
-        if(q?.quoteStatus==='live' && Number.isFinite(q.price) && q.price!>0)
+        if(q && Number.isFinite(q.price) && q.price!>0)
           processPriceAlertTick(batch[i],q.price!,q.quoteUpdatedAt||Date.now());
       });
     };
@@ -466,6 +467,7 @@ export default function App() {
   // Chart Ref
   const chartRef = useRef<MainChartRef>(null);
   const lastSecondarySyncRef = useRef<number>(0);
+  const lastPriceRenderRef = useRef<number>(0);
   const lastFlashTimeRef = useRef<number>(0);
 
   // Window Layout & Multi-Chart Workspace State
@@ -906,8 +908,10 @@ export default function App() {
 
         const now = Date.now();
         // Only verified venue ticks may trigger the price-alert evaluator.
-        if(origin==='stream')processPriceAlertTick(activeAsset,newPrice,now);
-        setActiveAsset((prev) => {
+        if(origin==='stream'||activeAsset.pairAddress)processPriceAlertTick(activeAsset,newPrice,now);
+        const renderNow=origin!=='stream'||now-lastPriceRenderRef.current>=120;
+        if(renderNow)lastPriceRenderRef.current=now;
+        if(renderNow)setActiveAsset((prev) => {
           const priceDelta = newPrice - prev.price;
           if (priceDelta !== 0 && now - lastFlashTimeRef.current > 350) {
             lastFlashTimeRef.current = now;
@@ -937,6 +941,19 @@ export default function App() {
           };
         });
 
+        if(origin==='stream'){
+          const quote:Asset={...activeAsset,price:newPrice,quoteStatus:'live',quoteUpdatedAt:now};
+          setPaperAccounts(prev=>{
+            let changed=false;
+            const accounts=prev.accounts.map(record=>{
+              const portfolio=evaluatePaperOrders(record.portfolio,quote,now);
+              if(portfolio===record.portfolio)return record;
+              changed=true;
+              return {...record,portfolio};
+            });
+            return changed?{...prev,accounts}:prev;
+          });
+        }
         // Throttle secondary UI updates to 150ms to keep render cycles smooth and light
         if (now - lastSecondarySyncRef.current > 150) {
           lastSecondarySyncRef.current = now;
@@ -957,20 +974,7 @@ export default function App() {
             )
           );
 
-          // Value ONLY the selected symbol at its own observed real-market tick.
-          const quote={...activeAsset,price:newPrice,quoteUpdatedAt:now,
-            quoteStatus:origin==='stream'&&!activeAsset.pairAddress?'live' as const:'delayed' as const};
-          if(origin!=='stream')return;
-          setPaperAccounts(prev=>{
-            let changed=false;
-            const accounts=prev.accounts.map(record=>{
-              const portfolio=evaluatePaperOrders(record.portfolio,quote,now);
-              if(portfolio===record.portfolio)return record;
-              changed=true;
-              return {...record,portfolio};
-            });
-            return changed?{...prev,accounts}:prev;
-          });
+          // Market risk processing runs on every WS event outside UI throttle.
         }
       },
 
