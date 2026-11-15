@@ -100,6 +100,14 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
     className="h-6 bg-[#1e222d] border-t border-[#2a2e39] px-3 flex items-center gap-3 text-[11px] text-[#d1d4dc]">
     <strong>Paper Trading</strong><span>Equity {cash(account.equity)} {paperSettings.currency}</span><span>Open {positions.length}</span>
   </button>;
+  const corruptBackup=(()=>{try{return localStorage.getItem('candlelight_paper_accounts_corrupt_backup_v1');}catch{return null;}})();
+  const exportRecoveredLedger=()=>{
+    if(!corruptBackup)return;
+    const blob=new Blob([corruptBackup],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const anchor=document.createElement('a');anchor.href=url;anchor.download='candlelight-paper-ledger-recovery.json';
+    anchor.click();URL.revokeObjectURL(url);
+  };
   return <section className={`border-t border-[#2a2e39] bg-[#131722] flex flex-col text-[#d1d4dc] z-20 ${isExpanded?'h-[450px]':'h-[295px]'}`}>
     <header className="flex items-center gap-3 px-3 py-1.5 border-b border-[#2a2e39] text-[11px] bg-[#171b25] flex-wrap">
       <strong>Paper Trading</strong>
@@ -150,6 +158,9 @@ export const BottomTradingPanel:React.FC<BottomTradingPanelProps>=({
       <button type="button" className="ml-auto px-2 py-1 border border-[#5e5460] rounded hover:bg-[#393342]"
         onClick={()=>{if(window.confirm('Reset '+account.name+' and erase all its positions, pending orders, fills and conditional rules?'))onResetPaper();}}>Reset account</button>
     </div>
+    {corruptBackup&&<div role="alert" className="px-3 py-1.5 text-[11px] text-[#ffd1a5] bg-[#3a2a22]">
+      An old unreadable paper ledger was preserved. It cannot be loaded safely. <button type="button" className="underline font-semibold" onClick={exportRecoveredLedger}>Export recovery backup</button>
+    </div>}
     {paperError&&<div role="alert" className="px-3 py-1 text-[11px] text-[#ffc5c5] bg-[#51202b]">{paperError}</div>}
     <nav className="flex flex-wrap items-center gap-1 border-b border-[#2a2e39] px-2 py-1 text-[11px]">
       {tabs.map(([id,name])=><button type="button" key={id} onClick={()=>setTab(id)}

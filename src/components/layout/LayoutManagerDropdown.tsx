@@ -84,18 +84,6 @@ export const LayoutManagerDropdown: React.FC<LayoutManagerDropdownProps> = ({
     };
   }, [onSaveLayout]);
 
-  const handleShareClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newShareState = !currentLayout.shareEnabled;
-    onShareToggle(newShareState);
-    if (newShareState) {
-      // Copy share URL to clipboard
-      navigator.clipboard?.writeText(window.location.href).catch(() => {});
-      setCopiedNotification(true);
-      setTimeout(() => setCopiedNotification(false), 2500);
-    }
-  };
-
   const submitModal = () => {
     if (!inputValue.trim()) return;
     if (modalMode === 'rename') {
@@ -171,43 +159,9 @@ export const LayoutManagerDropdown: React.FC<LayoutManagerDropdownProps> = ({
             </button>
           </div>
 
-          {/* Share layout Switch */}
-          <div
-            className="px-2.5 py-1 flex items-center justify-between hover:bg-[#262b37] cursor-pointer transition text-[#d1d4dc] hover:text-white"
-            onClick={handleShareClick}
-          >
-            <div className="flex items-center gap-1.5">
-              <span>Share layout</span>
-              <Info className="w-2.5 h-2.5 text-[#787b86]" />
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={currentLayout.shareEnabled}
-              onClick={handleShareClick}
-              className={`relative inline-flex h-3.5 w-6.5 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                currentLayout.shareEnabled ? 'bg-white' : 'bg-[#2a2e39]'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-2.5 w-2.5 transform rounded-full transition duration-200 ease-in-out shadow-xs ${
-                  currentLayout.shareEnabled
-                    ? 'translate-x-3 bg-[#131722]'
-                    : 'translate-x-0.5 bg-[#787b86]'
-                }`}
-              />
-            </button>
+          <div role="note" className="px-2.5 py-2 text-[10px] text-[#8892a3] border-b border-[#2a2e39]">
+            Layout sharing unavailable. Saved layouts live only in this browser; the page URL does not transfer them.
           </div>
-
-          {copiedNotification && (
-            <div className="mx-2.5 my-0.5 py-0.5 px-1.5 bg-[#089981]/20 border border-[#089981]/40 rounded text-[9px] text-[#00ffa3] flex items-center gap-1">
-              <Check className="w-2.5 h-2.5 shrink-0" />
-              <span>Share link copied!</span>
-            </div>
-          )}
-
-          {/* Divider */}
-          <div className="h-px bg-[#2a2e39] my-0.5" />
 
           {/* Make a copy... */}
           <button

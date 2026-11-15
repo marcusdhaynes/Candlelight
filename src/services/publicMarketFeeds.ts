@@ -72,7 +72,7 @@ const toQuote = (a: Asset, price: number, open: number, high: number, low: numbe
     changePercent24h: Number(((price/open - 1)*100).toFixed(2)),
     high24h: Number.isFinite(high) && high > 0 ? high : price,
     low24h: Number.isFinite(low) && low > 0 ? low : price, volume24h: formatVolume(vol),
-    quoteStatus: 'live', quoteUpdatedAt: Date.now() };
+    quoteStatus: 'delayed', quoteUpdatedAt: Date.now() };
 };
 let krakenFuturesCache: { at: number; tickers: any[] } | null = null;
 let krakenFuturesRequest: Promise<any[]> | null = null;
