@@ -11,7 +11,7 @@ self.addEventListener('install',event=>{
    const entry=await fetch(scope,{cache:'no-store'});
    if(!entry.ok)throw Error('Cannot cache application shell');
    const html=await entry.text();
-   const assets=[...html.matchAll(/(?:src|href)="([^"]+\\.(?:js|css))"/g)]
+   const assets=[...html.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)]
      .map(match=>new URL(match[1],scope).href)
      .filter(url=>{
        const resource=new URL(url),origin=new URL(scope);
