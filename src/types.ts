@@ -288,6 +288,7 @@ export interface JournalTrade {
   cost: number;
   netReturn: number; // in $
   netReturnPercent: number; // in %
+  fees?:number; // Total recorded entry/exit fees, never silently assumed zero when imported
   setups: string[]; // e.g. ['BREAKOUT', 'REVERSAL', 'RSI CROSSED', 'BU-OB', 'GAP UP', 'BOUNCE']
   mistakes: string[]; // e.g. ["didn't set up stop loss", 'fomo', 'Greed', 'Market crash', 'News', 'Early exit']
   efficiency: number; // 0 to 100%

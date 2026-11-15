@@ -13,7 +13,8 @@ export function validJournalData(value:unknown):value is JournalTrade[]{
       typeof t.openDate!=='string'||!Number.isFinite(Date.parse(t.openDate.replace(' ','T')))||
       (t.closeDate!==undefined&&
         (typeof t.closeDate!=='string'||!Number.isFinite(Date.parse(t.closeDate.replace(' ','T')))))||
-      !finite(t.netReturn)||!finite(t.netReturnPercent)||!finite(t.size)||t.size<=0||
+      !finite(t.netReturn)||!finite(t.netReturnPercent)||
+      (t.fees!==undefined&&(!finite(t.fees)||t.fees<0))||!finite(t.size)||t.size<=0||
       !finite(t.entryPrice)||t.entryPrice<=0||!finite(t.cost)||
       (t.exitPrice!==undefined&&(!finite(t.exitPrice)||t.exitPrice<=0))||
       !Array.isArray(t.setups)||!t.setups.every((label:unknown)=>typeof label==='string')||

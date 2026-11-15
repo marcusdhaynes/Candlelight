@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { JournalTrade, JournalSide, JournalStatus } from '../../types';
 import { SAMPLE_SETUPS_LIST, SAMPLE_MISTAKES_LIST } from '../../data/sampleJournalTrades';
 import {localJournalTimestamp} from '../../services/journalTimes';
+import {calculateManualTradePnL} from '../../services/journalFinancials';
 import {
   X,
   Plus,
@@ -38,13 +39,14 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
   const [entryPrice, setEntryPrice] = useState<string>('');
   const [exitPrice, setExitPrice] = useState<string>('');
   const [size, setSize] = useState<string>('');
+  const [totalFees,setTotalFees]=useState<string>('');
   const [stopLoss, setStopLoss] = useState<string>('');
   const [takeProfit, setTakeProfit] = useState<string>('');
   const [status, setStatus] = useState<JournalStatus>('OPEN');
   const [selectedSetups, setSelectedSetups] = useState<string[]>([]);
   const [selectedMistakes, setSelectedMistakes] = useState<string[]>([]);
   const [note, setNote] = useState<string>('');
-  const [emotion, setEmotion] = useState<'Confident' | 'Disciplined' | 'FOMO' | 'Greed' | 'Hesitant' | 'Revenge'>('Disciplined');
+  const [emotion, setEmotion] = useState<JournalTrade['emotion']>(undefined);
   const [portfolio, setPortfolio] = useState('Main Account');
   const [validationError,setValidationError]=useState('');
 
@@ -65,13 +67,15 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       setEntryPrice(String(tradeToEdit.entryPrice));
       setExitPrice(tradeToEdit.exitPrice !== undefined ? String(tradeToEdit.exitPrice) : '');
       setSize(String(tradeToEdit.size));
+      setTotalFees(String(tradeToEdit.fees??tradeToEdit.executions?.reduce(
+        (sum,e)=>sum+(e.fee||0),0)??''));
       setStopLoss(tradeToEdit.stopLoss !== undefined ? String(tradeToEdit.stopLoss) : '');
       setTakeProfit(tradeToEdit.takeProfit !== undefined ? String(tradeToEdit.takeProfit) : '');
       setStatus(tradeToEdit.status);
       setSelectedSetups(tradeToEdit.setups || []);
       setSelectedMistakes(tradeToEdit.mistakes || []);
       setNote(tradeToEdit.note || '');
-      setEmotion(tradeToEdit.emotion || 'Disciplined');
+      setEmotion(tradeToEdit.emotion);
       setPortfolio(tradeToEdit.portfolio || 'Main Account');
 
       // Ensure any existing trade tags are in the available lists
@@ -87,13 +91,14 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       setEntryPrice('');
       setExitPrice('');
       setSize('');
+      setTotalFees('');
       setStopLoss('');
       setTakeProfit('');
       setStatus('OPEN');
       setSelectedSetups([]);
       setSelectedMistakes([]);
       setNote('');
-      setEmotion('Disciplined');
+      setEmotion(undefined);
       setPortfolio('Main Account');
     }
   }, [isOpen, tradeToEdit?.id]);
@@ -103,9 +108,11 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
     if(!exitPrice.trim() || !Number.isFinite(entry) || entry<=0 || !Number.isFinite(exit)||exit<=0){
       setStatus('OPEN');return;
     }
-    const pnl=(side==='LONG'?exit-entry:entry-exit);
-    setStatus(pnl>0?'WIN':pnl<0?'LOSS':'BE');
-  },[entryPrice,exitPrice,side]);
+    try{
+      const result=calculateManualTradePnL(entry,exit,Number(size),side,Number(totalFees||0));
+      setStatus(result.status);
+    }catch{setStatus('OPEN');}
+  },[entryPrice,exitPrice,size,side,totalFees]);
 
   if (!isOpen) return null;
 
@@ -152,10 +159,12 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
     const entry = Number(entryPrice);
     const exit = exitPrice.trim() ? Number(exitPrice) : undefined;
     const qty = Number(size);
+    const fees=totalFees.trim()?Number(totalFees):0;
     const sl = stopLoss.trim() ? Number(stopLoss) : undefined;
     const tp = takeProfit.trim() ? Number(takeProfit) : undefined;
     if(!symbol.trim()||!Number.isFinite(entry)||entry<=0||!Number.isFinite(qty)||qty<=0||
       (exit!==undefined&&(!Number.isFinite(exit)||exit<=0))||
+      !Number.isFinite(fees)||fees<0||
       (sl!==undefined&&(!Number.isFinite(sl)||sl<=0))||
       (tp!==undefined&&(!Number.isFinite(tp)||tp<=0))){
       setValidationError('Enter a symbol and finite positive entry price and quantity. Optional prices must also be positive.');
@@ -163,23 +172,13 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
     }
     setValidationError('');
 
-    let netReturn = 0;
-    let netReturnPct = 0;
-    const cost = entry * qty;
-
-    if (exit !== undefined) {
-      if (side === 'LONG') {
-        netReturn = (exit - entry) * qty;
-      } else {
-        netReturn = (entry - exit) * qty;
-      }
-      netReturnPct = cost > 0 ? (netReturn / cost) * 100 : 0;
-    }
-
-    const computedStatus:JournalStatus=exit===undefined?'OPEN':netReturn>0?'WIN':netReturn<0?'LOSS':'BE';
+    const {netReturn,netReturnPercent:netReturnPct,status:computedStatus}=
+      calculateManualTradePnL(entry,exit,qty,side,fees);
+    const cost=entry*qty;
     const editingExecutions=!!tradeToEdit?.executions?.length;
     if(editingExecutions && (entry!==tradeToEdit!.entryPrice ||
-      exit!==tradeToEdit!.exitPrice || qty!==tradeToEdit!.size || side!==tradeToEdit!.side)){
+      exit!==tradeToEdit!.exitPrice || qty!==tradeToEdit!.size || side!==tradeToEdit!.side ||
+      (tradeToEdit!.fees!==undefined&&fees!==tradeToEdit!.fees))){
       setValidationError('Execution-backed trade prices, size and side are locked here. Edit notes or tags without altering the imported fills.');
       return;
     }
@@ -197,6 +196,7 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
       exitPrice: exit,
       size: qty,
       cost: Number(cost.toFixed(2)),
+      fees:editingExecutions?(tradeToEdit?.fees??fees):fees,
       netReturn: Number(originalNet.toFixed(2)),
       netReturnPercent: Number(originalNetPct.toFixed(2)),
       setups: selectedSetups,
@@ -341,6 +341,16 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
             </div>
           </div>
 
+          <div>
+            <label htmlFor="journal-total-fees" className="block text-[#848e9c] mb-1 font-medium">
+              Total Entry and Exit Fees (quote currency)
+            </label>
+            <input id="journal-total-fees" type="number" min="0" step="any"
+              value={totalFees} onChange={e=>setTotalFees(e.target.value)}
+              disabled={!!tradeToEdit?.executions?.length}
+              placeholder="0 if no fees" className="w-full bg-[#131722] border border-[#232836] rounded-lg px-3 py-2 text-white font-mono disabled:opacity-60"/>
+            <p className="text-[10px] text-[#848e9c] mt-1">Net P&L deducts entered fees; imported execution fees are preserved.</p>
+          </div>
           {/* Risk Management: Stop Loss, Take Profit */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -514,10 +524,11 @@ export const AddTradeModal: React.FC<AddTradeModalProps> = ({
                 <Brain className="w-3 h-3 text-[#2962ff]" /> Emotional State
               </label>
               <select
-                value={emotion}
-                onChange={(e) => setEmotion(e.target.value as any)}
+                value={emotion||''}
+                onChange={(e) => setEmotion((e.target.value||undefined) as JournalTrade['emotion'])}
                 className="w-full bg-[#131722] border border-[#232836] rounded-lg px-3 py-2 text-white outline-none focus:border-[#2962ff] cursor-pointer"
               >
+                <option value="">Unspecified</option>
                 <option value="Disciplined">Disciplined</option>
                 <option value="Confident">Confident</option>
                 <option value="FOMO">FOMO</option>
