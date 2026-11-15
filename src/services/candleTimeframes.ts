@@ -25,6 +25,7 @@ export function candleBucketStart(timestamp:number,timeframe:Timeframe):number {
 export function resampleVerifiedCandles(bars:OHLCV[],timeframe:Timeframe):OHLCV[] {
   const sorted=[...bars].sort((a,b)=>a.time-b.time);
   const output:OHLCV[]=[];
+  const earliest=new Map<number,number>();
   for(const b of sorted){
     if(![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||
       b.time<=0||b.open<=0||b.close<=0||b.low<=0||
@@ -36,7 +37,10 @@ export function resampleVerifiedCandles(bars:OHLCV[],timeframe:Timeframe):OHLCV[
       last.low=Math.min(last.low,b.low);
       last.close=b.close;
       last.volume+=b.volume;
-    }else output.push({...b,time});
+    }else {earliest.set(time,b.time);output.push({...b,time});}
   }
+  // Drop initial aggregate when source history begins midway through a
+  // month/quarter/year. Partial history must not masquerade as full OHLC.
+  if(['1M','3M','12M'].includes(timeframe) && output.length && earliest.get(output[0].time)!==output[0].time)output.shift();
   return output;
 }

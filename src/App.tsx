@@ -347,43 +347,40 @@ export default function App() {
   const [closeReviewId,setCloseReviewId]=useState<string|null>(null);
   const [closeReviewQty,setCloseReviewQty]=useState('');
   const previousRulePrices=useRef<Record<string,number>>({});
-  const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(a=>
-    [...a.portfolio.positions.map(p=>p.symbol+'|'+p.exchange),
-     ...(a.portfolio.pendingOrders||[]).map(o=>o.symbol+'|'+o.exchange)]))].join('~');
+  // Held paper positions and pending orders need real, venue-scoped stream
+  // updates; REST snapshots must never fill a pending order or protective stop.
+  const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(record=>[
+    ...record.portfolio.positions.map(p=>[p.symbol,p.exchange,p.marketType||''].join('|')),
+    ...(record.portfolio.pendingOrders||[]).map(o=>[o.symbol,o.exchange,o.marketType||''].join('|')),
+  ]))].sort().join('~');
   useEffect(()=>{
-    const keys=heldMarketKeys.split('~').filter(Boolean);
-    if(!keys.length)return;
-    let cancelled=false;
-    let cursor=0;
-    const refresh=async()=>{
-      // Rotate through independent markets to respect public API rate limits
-      // while supporting arbitrarily many saved paper accounts.
-      const candidates=keys.slice(cursor,cursor+16);
-      cursor=(cursor+16)%keys.length;
-      const batch=candidates.length?candidates:keys.slice(0,16);
-      const pairs=batch.map(k=>{const [symbol,exchange]=k.split('|');
-        return assets.find(a=>a.symbol===symbol&&(a.source||a.exchange)===exchange);
-      }).filter((a):a is Asset=>Boolean(a));
-      const quotes=await Promise.all(pairs.map(async a=>{
-        const t=await fetchRealTicker24h(a).catch(()=>null);
-        return t?.quoteStatus==='live'?{...a,...t}:null;
+    const activeKey=marketIdentity(activeAsset);
+    const pending=heldMarketKeys.split('~').filter(k=>k&&k!==activeKey);
+    let stopped=false;
+    const unsubs:Array<()=>void>=[];
+    for(const key of pending){
+      const market=assets.find(asset=>marketIdentity(asset)===key);
+      if(!market)continue;
+      unsubs.push(subscribeRealMarketData(market,'1m',{
+        onPriceUpdate:(price,_change,_percent,origin)=>{
+          if(stopped||origin!=='stream'||!Number.isFinite(price)||price<=0)return;
+          const at=Date.now(),quote:Asset={...market,price,quoteStatus:'live',quoteUpdatedAt:at};
+          setPaperAccounts(prev=>{
+            let changed=false;
+            const accounts=prev.accounts.map(record=>{
+              const portfolio=evaluatePaperOrders(record.portfolio,quote,at);
+              if(portfolio===record.portfolio)return record;
+              changed=true;
+              return {...record,portfolio};
+            });
+            return changed?{...prev,accounts}:prev;
+          });
+        },
+        onCandleTick:()=>{},onOrderBook:()=>{},onTrade:()=>{},onStatusChange:()=>{},
       }));
-      if(cancelled)return;
-      setPaperAccounts(prev=>{
-        let changed=false;
-        const accounts=prev.accounts.map(record=>{
-          const portfolio=quotes.reduce((state,q)=>q?evaluatePaperOrders(state,q):state,record.portfolio);
-          if(portfolio===record.portfolio)return record;
-          changed=true;
-          return {...record,portfolio};
-        });
-        return changed?{...prev,accounts}:prev;
-      });
-    };
-    void refresh();
-    const timer=window.setInterval(()=>{void refresh();},20000);
-    return()=>{cancelled=true;window.clearInterval(timer);};
-  },[heldMarketKeys]);
+    }
+    return ()=>{stopped=true;unsubs.forEach(unsub=>unsub());};
+  },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType]);
   useEffect(() => {
     const expire = () => setPaperAccounts(prev => {
       let changed = false;

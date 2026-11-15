@@ -62,9 +62,9 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
   const baseline=Number.isFinite(baseBalance)&&baseBalance>=0?baseBalance:0;
   const closed = trades.filter((t) => t.status !== 'OPEN');
   const openTrades = trades.filter((t) => t.status === 'OPEN').length;
-  const wins = closed.filter((t) => t.status === 'WIN');
-  const losses = closed.filter((t) => t.status === 'LOSS');
-  const bes = closed.filter((t) => t.status === 'BE');
+  const wins = closed.filter((t) => t.netReturn>0);
+  const losses = closed.filter((t) => t.netReturn<0);
+  const bes = closed.filter((t) => t.netReturn===0);
 
   const winTrades = wins.length;
   const lossTrades = losses.length;
@@ -78,11 +78,11 @@ export function calculateJournalStats(trades: JournalTrade[], baseBalance = 0): 
 
   const grossProfit = wins.reduce((acc, t) => acc + Math.max(0, t.netReturn), 0);
   const grossLoss = losses.reduce((acc, t) => acc + Math.abs(Math.min(0, t.netReturn)), 0);
-  const profitFactor = grossLoss > 0 ? Number((grossProfit / grossLoss).toFixed(2)) : grossProfit > 0 ? 99 : 0;
+  const profitFactor = grossLoss > 0 ? Number((grossProfit / grossLoss).toFixed(2)) : 0; // Undefined when no losses.
 
   const avgWin = winTrades > 0 ? Number((grossProfit / winTrades).toFixed(2)) : 0;
   const avgLoss = lossTrades > 0 ? Number((grossLoss / lossTrades).toFixed(2)) : 0;
-  const winLossRatio = avgLoss > 0 ? Number((avgWin / avgLoss).toFixed(2)) : avgWin > 0 ? 2 : 0;
+  const winLossRatio = avgLoss > 0 ? Number((avgWin / avgLoss).toFixed(2)) : 0;
 
   const avgReturnPct =
     totalClosed > 0
@@ -213,9 +213,9 @@ export function calculateWaveScore(trades: JournalTrade[]): WaveScoreData {
 
   const closed = trades.filter((t) => t.status !== 'OPEN');
   const withSL = trades.filter((t) => t.stopLoss !== undefined && t.stopLoss > 0).length;
-  const riskScore = Math.min(100, Math.round((withSL / Math.max(1, trades.length)) * 90 + 10));
+  const riskScore = Math.min(100, Math.round((withSL / Math.max(1, trades.length)) * 100));
 
-  const winRate = closed.length > 0 ? (closed.filter((t) => t.status === 'WIN').length / closed.length) * 100 : 0;
+  const winRate = closed.length > 0 ? (closed.filter((t) => t.netReturn>0).length / closed.length) * 100 : 0;
   const entryScore = closed.length ? Math.min(100,Math.max(0,Math.round(winRate))) : 0;
 
   const observedEfficiency=closed.filter(t=>Number.isFinite(t.efficiency)&&t.efficiency>0);
@@ -250,7 +250,7 @@ export function getSetupsBreakdown(trades: JournalTrade[]): SetupMetric[] {
     for (const s of list) {
       if (!map[s]) map[s] = { count: 0, wins: 0, netReturn: 0 };
       map[s].count++;
-      if (t.status === 'WIN') map[s].wins++;
+      if (t.netReturn>0) map[s].wins++;
       map[s].netReturn += t.netReturn;
     }
   }
@@ -326,7 +326,7 @@ export function getCalendarMonthData(
     const dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
     const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
-    const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
+    const winCount = dayTrades.filter((t) => t.status!=='OPEN'&&t.netReturn>0).length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));
     const mistakes = Array.from(new Set(dayTrades.flatMap((t) => t.mistakes || [])));
@@ -349,7 +349,7 @@ export function getCalendarMonthData(
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
     const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
-    const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
+    const winCount = dayTrades.filter((t) => t.status!=='OPEN'&&t.netReturn>0).length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));
     const mistakes = Array.from(new Set(dayTrades.flatMap((t) => t.mistakes || [])));
@@ -375,7 +375,7 @@ export function getCalendarMonthData(
     const dateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dayTrades = dayTradesMap[dateStr] || [];
     const netReturn = dayTrades.filter(t=>t.status!=='OPEN').reduce((acc,t)=>acc+t.netReturn,0);
-    const winCount = dayTrades.filter((t) => t.status === 'WIN').length;
+    const winCount = dayTrades.filter((t) => t.status!=='OPEN'&&t.netReturn>0).length;
 
     const setups = Array.from(new Set(dayTrades.flatMap((t) => t.setups || [])));
     const mistakes = Array.from(new Set(dayTrades.flatMap((t) => t.mistakes || [])));
