@@ -131,12 +131,18 @@ export function cancelPaperOrder(p:PaperPortfolio,id:string):PaperPortfolio{
   if(!order)return p;
   return recordEvent(withOrderReservations({...p,pendingOrders:pendingFor(p).filter(o=>o.id!==id)}),order,'canceled');
 }
-export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):PaperPortfolio{
+/** Expire orders and release margin even when no new market quote arrives. */
+export function expirePaperOrders(p:PaperPortfolio,at=Date.now()):PaperPortfolio {
   const old=pendingFor(p);
-  const notExpired=old.filter(o=>!o.expiresAt||o.expiresAt>at);
-  let next=withOrderReservations({...p,pendingOrders:notExpired});
-  for(const order of old.filter(o=>!!o.expiresAt&&o.expiresAt<=at))
-    next=recordEvent(next,order,'expired',at);
+  const expired=old.filter(o=>o.expiresAt!==undefined&&o.expiresAt<=at);
+  if(!expired.length)return p;
+  let next=withOrderReservations({...p,pendingOrders:old.filter(o=>!expired.includes(o))});
+  for(const order of expired)next=recordEvent(next,order,'expired',at);
+  return next;
+}
+export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):PaperPortfolio{
+  let next=expirePaperOrders(p,at);
+  const notExpired=pendingFor(next);
   if(!isFreshPaperQuote(a,at))return next;
   if(!notExpired.length)return markPaperPositions(next,a,at);
   const venue=a.source||a.exchange;

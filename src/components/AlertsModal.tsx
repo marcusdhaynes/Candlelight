@@ -31,6 +31,8 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
     const newAlert: PriceAlert = {
       id: 'alert-' + Date.now(),
       symbol: activeAsset.symbol,
+      exchange: activeAsset.source || activeAsset.exchange,
+      marketType: activeAsset.marketType,
       targetPrice: priceNum,
       condition,
       createdAt: Date.now(),
@@ -167,6 +169,9 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
                       <span className="font-mono text-[#2962ff]">
                         ${alert.targetPrice.toLocaleString()}
                       </span>
+                    </div>
+                    <div className="text-[10px] text-[#787b86] mt-0.5">
+                      {alert.exchange || 'Legacy alert · recreate to select an exact venue'}
                     </div>
                     {alert.notes && <div className="text-[11px] text-[#787b86] mt-0.5">{alert.notes}</div>}
                     <div className="text-[10px] text-[#787b86] mt-1">

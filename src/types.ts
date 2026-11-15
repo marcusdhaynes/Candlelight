@@ -162,6 +162,9 @@ export interface Watchlist {
 export interface PriceAlert {
   id: string;
   symbol: string;
+  /** Exact venue identity; unbound legacy alerts cannot fire on unrelated venues. */
+  exchange?: string;
+  marketType?: Asset['marketType'];
   targetPrice: number;
   condition: 'cross_above' | 'cross_below';
   createdAt: number;

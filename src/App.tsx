@@ -42,7 +42,7 @@ import { PaperAccountModal } from './components/PaperAccountModal';
 import { SavedChartsModal } from './components/SavedChartsModal';
 import type { SavedChartIdea } from './services/savedCharts';
 import {combineHistoryWithLive,mergeLiveCandle} from './services/chartCandles';
-import { cancelPaperOrder,evaluatePaperOrders,submitPaperOrder,estimatePaperQty,withOrderReservations,type PaperOrderRequest } from './services/paperOrders';
+import { cancelPaperOrder,evaluatePaperOrders,expirePaperOrders,submitPaperOrder,estimatePaperQty,withOrderReservations,type PaperOrderRequest } from './services/paperOrders';
 import { SymbolSearchModal } from './components/SymbolSearchModal';
 import { IndicatorsModal } from './components/IndicatorsModal';
 import { AlertsModal } from './components/AlertsModal';
@@ -213,7 +213,9 @@ export default function App() {
 
   const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
     const saved = readLocalJson<PriceAlert[]>('tv_alerts', []);
-    return Array.isArray(saved) ? saved : [];
+    // Unbound legacy alerts are visible but paused, not allowed to fire on
+    // whichever exchange happens to be selected.
+    return Array.isArray(saved) ? saved.map(a=>a.exchange?a:{...a,paused:true}) : [];
   });
   const alertsRef = useRef<PriceAlert[]>(alerts);
   const previousAlertPricesRef = useRef<Record<string, number>>({});
@@ -233,6 +235,55 @@ export default function App() {
     catch (error) { console.warn('Alert log storage unavailable', error); }
   }, [alertLog]);
   const [activeNotification, setActiveNotification] = useState<{ id: string; message: string; type: 'alert' | 'info' } | null>(null);
+  const processPriceAlertTick = useCallback((market:Asset, price:number, now=Date.now()) => {
+    const key = assetIdentity(market);
+    const previous = previousAlertPricesRef.current[key];
+    previousAlertPricesRef.current[key] = price;
+    if (market.pairAddress || !Number.isFinite(previous) || !Number.isFinite(price) || price <= 0) return;
+    const venue = market.source || market.exchange;
+    const hits = alertsRef.current.filter(a => a.symbol === market.symbol &&
+      a.exchange === venue && (!a.marketType || a.marketType === market.marketType) &&
+      !a.triggered && !a.paused && Number.isFinite(a.targetPrice) && a.targetPrice > 0 &&
+      (a.condition === 'cross_above'
+        ? previous < a.targetPrice && price >= a.targetPrice
+        : previous > a.targetPrice && price <= a.targetPrice));
+    if (!hits.length) return;
+    const matched = new Set(hits.map(a => a.id));
+    const updated = alertsRef.current.map(a => matched.has(a.id) ? {...a, triggered:true} : a);
+    alertsRef.current = updated;
+    setAlerts(updated);
+    const entries:AlertLogEntry[] = hits.map(a => ({
+      id:a.id + '-' + now, symbol:a.symbol, price, at:now,
+      message:`${a.symbol} (${venue}) crossed ${a.condition === 'cross_above' ? 'above' : 'below'} ${a.targetPrice} at ${price}`,
+    }));
+    setAlertLog(prev => [...entries, ...prev].slice(0,100));
+    setActiveNotification({id:String(now),message:entries[0].message,type:'alert'});
+  }, []);
+  // Poll dormant/inactive-chart alerts at their exact venue. These snapshots
+  // are not tick streams; users must keep the browser open for notifications.
+  const monitoredAlertKeys = alerts.filter(a=>!a.triggered&&!a.paused&&!!a.exchange)
+    .map(a=>[a.symbol,a.exchange,a.marketType||''].join('|')).sort().join('~');
+  useEffect(() => {
+    const wanted = new Set(monitoredAlertKeys.split('~').filter(Boolean));
+    const selectedKey = assetIdentity(activeAsset);
+    const targets = assets.filter(a=>wanted.has(assetIdentity(a))&&assetIdentity(a)!==selectedKey);
+    if (!targets.length) return;
+    let stopped=false, cursor=0;
+    const poll = async () => {
+      const batch=targets.slice(cursor,cursor+8);
+      cursor=(cursor+8)%targets.length;
+      const quotes=await Promise.all(batch.map(a=>fetchRealTicker24h(a).catch(()=>null)));
+      if(stopped)return;
+      quotes.forEach((q,i)=>{
+        if(q?.quoteStatus==='live' && Number.isFinite(q.price) && q.price!>0)
+          processPriceAlertTick(batch[i],q.price!,q.quoteUpdatedAt||Date.now());
+      });
+    };
+    void poll();
+    const interval=window.setInterval(()=>{void poll();},20000);
+    return ()=>{stopped=true;window.clearInterval(interval);};
+  },[monitoredAlertKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,processPriceAlertTick]);
+
 
   // Each account owns independent cash, holdings, fills, conditional orders and fee policy.
   const [paperAccounts,setPaperAccounts]=useState<PaperAccountsState>(loadPaperAccounts);
@@ -279,6 +330,21 @@ export default function App() {
     const timer=window.setInterval(()=>{void refresh();},20000);
     return()=>{cancelled=true;window.clearInterval(timer);};
   },[heldMarketKeys]);
+  useEffect(() => {
+    const expire = () => setPaperAccounts(prev => {
+      let changed = false;
+      const accounts = prev.accounts.map(record => {
+        const portfolio = expirePaperOrders(record.portfolio);
+        if (portfolio === record.portfolio) return record;
+        changed = true;
+        return {...record, portfolio};
+      });
+      return changed ? {...prev, accounts} : prev;
+    });
+    expire();
+    const interval = window.setInterval(expire, 60000);
+    return () => window.clearInterval(interval);
+  }, []);
   const selectPaperAccount=(id:string)=>{
     setPaperAccounts(prev=>prev.accounts.some(a=>a.id===id)?{...prev,activeId:id}:prev);
     setPaperError('');
@@ -781,31 +847,8 @@ export default function App() {
         if (isCancelled) return;
 
         const now = Date.now();
-        // Price alerts are local, one-shot crossing detectors based exclusively
-        // on observed live ticks. Never trigger on demonstration/delayed quotes.
-        const marketKey = assetIdentity(activeAsset);
-        const previous = previousAlertPricesRef.current[marketKey];
-        previousAlertPricesRef.current[marketKey] = newPrice;
-        if (!activeAsset.pairAddress && Number.isFinite(previous) &&
-            Number.isFinite(newPrice) && newPrice > 0) {
-          const hits = alertsRef.current.filter(a => a.symbol === activeAsset.symbol &&
-            !a.triggered && !a.paused && Number.isFinite(a.targetPrice) && a.targetPrice > 0 &&
-            (a.condition === 'cross_above'
-              ? previous < a.targetPrice && newPrice >= a.targetPrice
-              : previous > a.targetPrice && newPrice <= a.targetPrice));
-          if (hits.length) {
-            const hitIds = new Set(hits.map(a => a.id));
-            const updated = alertsRef.current.map(a => hitIds.has(a.id) ? {...a, triggered:true} : a);
-            alertsRef.current = updated;
-            setAlerts(updated);
-            const entries:AlertLogEntry[] = hits.map(a => ({
-              id:a.id + '-' + now, symbol:a.symbol, price:newPrice, at:now,
-              message:`${a.symbol} crossed ${a.condition === 'cross_above' ? 'above' : 'below'} ${a.targetPrice} at ${newPrice}`,
-            }));
-            setAlertLog(prev => [...entries, ...prev].slice(0,100));
-            setActiveNotification({id:String(now),message:entries[0].message,type:'alert'});
-          }
-        }
+        // Only verified venue ticks may trigger the price-alert evaluator.
+        processPriceAlertTick(activeAsset,newPrice,now);
         setActiveAsset((prev) => {
           const priceDelta = newPrice - prev.price;
           if (priceDelta !== 0 && now - lastFlashTimeRef.current > 350) {
@@ -889,7 +932,7 @@ export default function App() {
       isCancelled = true;
       unsubscribe();
     };
-  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe]);
+  }, [activeAsset.symbol, activeAsset.source, activeAsset.exchange, activeAsset.marketType, activeTimeframe, processPriceAlertTick]);
 
   // All new paper trades must pass through the validated right-side order ticket.
   const handleSubmitTicketOrder = (request:PaperOrderRequest):string|null => {
@@ -987,14 +1030,12 @@ export default function App() {
     setConditionalOrders((prev) => prev.filter((o) => o.id !== id));
   }, []);
 
-  const executeOrderAction = useCallback(
-    (order:ConditionalOrder,_triggerPrice:number)=>{
-      if(order.symbol!==activeAsset.symbol||!isFreshPaperQuote(activeAsset)){
-        setPaperError('Conditional order needs a fresh quote from the selected market.');
-        return;
-      }
-      try{
-        let next:PaperPortfolio=paperPortfolio;
+  // Pure execution permits multiple triggered rules to apply sequentially to
+  // one current portfolio without replacing earlier fills in the same tick.
+  const applyRuleToPortfolio = useCallback((order:ConditionalOrder,base:PaperPortfolio):PaperPortfolio => {
+    if(order.symbol!==activeAsset.symbol||!isFreshPaperQuote(activeAsset))
+      throw new Error('Conditional order needs a fresh quote from the selected market.');
+    let next:PaperPortfolio=base;
         const side=order.action==='enter_short'?'Short':'Long';
         const spec=order.execution;
         const qtyFor=(kind:'market'|'limit',price:number)=>{
@@ -1045,23 +1086,24 @@ export default function App() {
         }else{
           throw new Error('Unsupported paper order action.');
         }
-        setPaperPortfolio(next);
-        setConditionalOrders(prev=>prev.map(o=>o.id!==order.id?o:{
-          ...o,triggerCount:o.triggerCount+1,lastTriggeredAt:Date.now(),
-          status:o.conditionLogic==='WHENEVER'?'active':'triggered',
-        }));
-        setPaperError('');
-      }catch(e){setPaperError(e instanceof Error?e.message:'Conditional order rejected');}
-    },
-    [activeAsset,paperPortfolio]
-  );
+    return next;
+  },[activeAsset]);
 
-  const handleTestTriggerConditionalOrder = useCallback(
-    (order: ConditionalOrder) => {
-      executeOrderAction(order, activeAsset.price);
-    },
-    [executeOrderAction, activeAsset.price]
-  );
+  const handleTestTriggerConditionalOrder = useCallback((order:ConditionalOrder) => {
+    try {
+      applyRuleToPortfolio(order,paperPortfolio);
+      setPaperAccounts(prev=>updateActivePaperAccount(prev,record=>{
+        try {
+          const next=applyRuleToPortfolio(order,record.portfolio);
+          const updated=record.orders.map(o=>o.id===order.id?{...o,
+            triggerCount:o.triggerCount+1,lastTriggeredAt:Date.now(),
+            status:o.conditionLogic==='WHENEVER'?'active' as const:'triggered' as const}:o);
+          return {...record,portfolio:next,orders:updated};
+        }catch{return record;}
+      }));
+      setPaperError('');
+    }catch(e){setPaperError(e instanceof Error?e.message:'Conditional paper action rejected');}
+  },[applyRuleToPortfolio,paperPortfolio]);
 
   // Automated Conditional Orders Evaluation Engine on Price Ticks
   useEffect(() => {
@@ -1075,6 +1117,7 @@ export default function App() {
         o.triggerCount < (o.maxTriggers||9999)
     );
 
+    const triggeredRules:ConditionalOrder[]=[];
     activeRules.forEach((order) => {
       const results = order.conditions.map((cond) => {
         if (cond.dependencyType === 'price' || cond.dependencyType === 'drawing') {
@@ -1104,6 +1147,10 @@ export default function App() {
           }
         }
         if (cond.dependencyType === 'alert') {
+          const priceAlert = alertsRef.current.find(a=>a.id===cond.dependencyId &&
+            a.triggered && a.symbol===activeAsset.symbol &&
+            a.exchange===(activeAsset.source||activeAsset.exchange));
+          if(priceAlert)return true;
           const alt = detailedAlerts.find((a) => a.id === cond.dependencyId);
           if (alt && alt.status === 'Triggered') return true;
         }
@@ -1123,11 +1170,34 @@ export default function App() {
         const last = order.lastTriggeredAt || 0;
         // Don't retrigger within 20s for WHENEVER
         if (Date.now() - last > 20000) {
-          executeOrderAction(order, curPrice);
+          triggeredRules.push(order);
         }
       }
     });
-  }, [activeAsset.price, activeAsset.symbol, conditionalOrders, detailedAlerts, paperPositions, executeOrderAction]);
+    if (!triggeredRules.length) return;
+    // Dry-run against the current snapshot to surface validation errors.
+    let simulated=paperPortfolio;
+    const approved:ConditionalOrder[]=[];
+    for (const rule of triggeredRules) {
+      try {simulated=applyRuleToPortfolio(rule,simulated);approved.push(rule);}
+      catch(e){setPaperError(e instanceof Error?e.message:'Conditional order rejected');}
+    }
+    if (!approved.length)return;
+    setPaperAccounts(prev => updateActivePaperAccount(prev,record=>{
+      let portfolio=record.portfolio;
+      const executed=new Set<string>();
+      for(const rule of approved){
+        try {portfolio=applyRuleToPortfolio(rule,portfolio);executed.add(rule.id);}
+        catch { /* Account changed since this tick; keep its existing portfolio. */ }
+      }
+      if(!executed.size)return record;
+      const at=Date.now();
+      return {...record,portfolio,orders:record.orders.map(o=>executed.has(o.id)?{
+        ...o,triggerCount:o.triggerCount+1,lastTriggeredAt:at,
+        status:o.conditionLogic==='WHENEVER'?'active' as const:'triggered' as const,
+      }:o)};
+    }));
+  }, [activeAsset.price, activeAsset.symbol, conditionalOrders, detailedAlerts, paperPositions, paperPortfolio, applyRuleToPortfolio]);
 
   // Toggle Alert Status
   const handleToggleAlertStatus = (id: string) => {
