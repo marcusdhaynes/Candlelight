@@ -2,7 +2,7 @@ import React from 'react';
 import type {FeedHealth} from '../services/marketEvents';
 type Props={health:Record<string,FeedHealth>;status:{connected:boolean;provider:string;latencyMs:number}};
 export const MarketDataHealthPanel:React.FC<Props>=({health,status})=>{
- const rows=Object.entries(health).sort((a,b)=>b[1].lastReceivedAt-a[1].lastReceivedAt).slice(0,50);
+ const rows=(Object.entries(health) as Array<[string,FeedHealth]>).sort((a,b)=>b[1].lastReceivedAt-a[1].lastReceivedAt).slice(0,50);
  const ago=(ms?:number)=>ms?Math.max(0,Math.round((Date.now()-ms)/1000))+'s ago':'Never';
  return <div id="candlelight-data-health" className="p-4 text-[11px] text-[#d4d9e5] space-y-3">
    <strong className="text-sm">Market Data Health Center</strong>
