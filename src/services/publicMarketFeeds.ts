@@ -47,10 +47,12 @@ const bybitBar: Record<string, string> = {
   '1h':'60','2h':'120','3h':'60','4h':'240','1D':'D','1W':'W',
   '1M':'M','3M':'M','12M':'M',
 };
-const krakenBar: Record<string, number> = {
+export const krakenBar: Record<string, number> = {
   '1m':1,'3m':1,'5m':5,'15m':15,'30m':30,'45m':15,
   '1h':60,'2h':60,'3h':60,'4h':240,
-  '1D':1440,'1W':10080,'1M':21600,'3M':21600,'12M':21600,
+  // Kraken 15-day bars do not align to UTC month boundaries. Use native days
+  // and let the calendar validator require every constituent bar.
+  '1D':1440,'1W':10080,'1M':1440,'3M':1440,'12M':1440,
 };
 const krakenFuturesBar: Record<string, string> = {
   '1m':'1m','3m':'1m','5m':'5m','15m':'15m','30m':'30m','45m':'15m',

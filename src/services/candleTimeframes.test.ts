@@ -27,4 +27,8 @@ assert.equal(resampleVerifiedCandles([three[0],three[2]],'3m',60,time(2026,10,14
 const month=(m:number):OHLCV=>({time:time(2026,m,1),open:100,high:101,low:99,close:100,volume:1});
 assert.equal(resampleVerifiedCandles([month(0),month(1),month(2)],'3M','1M',time(2026,3,2)).length,1);
 assert.equal(resampleVerifiedCandles([month(0),month(2)],'3M','1M',time(2026,3,2)).length,0);
+const {krakenBar}=await import('./publicMarketFeeds');
+assert.equal(krakenBar['1M'],1440);
+assert.equal(krakenBar['3M'],1440);
+assert.equal(krakenBar['12M'],1440);
 console.log('UTC calendar/timeframe aggregation tests passed, including incomplete source history.');
