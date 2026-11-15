@@ -12,6 +12,8 @@ Charts, drawing tools, indicators, alerts, journal examples, paper positions, an
 
 Fabricated history, fallback heartbeat ticks, generated depth, and seeded tape entries have been removed from the active market-data path. Missing feeds do not generate fake candles. Derivatives history never silently falls back to spot history. The preview does not provide equities/forex data through the old AI Studio-only proxy.
 
+The automated browser UI suite uses explicit empty external-feed fixtures so a third-party CORS outage cannot masquerade as a browser rendering regression. Real exchange connectivity and candle accuracy require separate provider-backed tests; no mock feed is used in the published application.
+
 ## Development
 
 Use Node.js 22 and pnpm 11.25.0:

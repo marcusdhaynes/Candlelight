@@ -1,4 +1,7 @@
 import {test,expect} from '@playwright/test';
+import {isolateExternalFeeds} from './market-fixtures';
+
+test.beforeEach(async ({page})=>{await isolateExternalFeeds(page);});
 
 test('workspace renders without uncaught errors and chart-scale controls respond',async ({page})=>{
   const errors:string[]=[];

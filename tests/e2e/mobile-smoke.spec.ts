@@ -1,4 +1,7 @@
 import {test,expect} from '@playwright/test';
+import {isolateExternalFeeds} from './market-fixtures';
+
+test.beforeEach(async ({page})=>{await isolateExternalFeeds(page);});
 
 test('narrow-screen application launches without a fatal browser exception',async ({page})=>{
   const errors:string[]=[];

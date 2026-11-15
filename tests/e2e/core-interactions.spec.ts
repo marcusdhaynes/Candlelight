@@ -1,4 +1,7 @@
 import {test,expect} from '@playwright/test';
+import {isolateExternalFeeds} from './market-fixtures';
+
+test.beforeEach(async ({page})=>{await isolateExternalFeeds(page);});
 
 test('order ticket tabs, order types, trailing exits, and account settings are interactive',async ({page})=>{
   const errors:string[]=[];
