@@ -299,25 +299,31 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
             symbol: syncSettings.symbol ? activeAsset.symbol : assetChoice.symbol,
             source:syncSettings.symbol?(activeAsset.source||activeAsset.exchange):(assetChoice.source||assetChoice.exchange),
             marketType:syncSettings.symbol?activeAsset.marketType:assetChoice.marketType,
+            chainId:syncSettings.symbol?activeAsset.chainId:assetChoice.chainId,
+            pairAddress:syncSettings.symbol?activeAsset.pairAddress:assetChoice.pairAddress,
             timeframe: syncSettings.interval ? activeTimeframe : tfChoice,
             chartType: chartType,
           });
         }
         onUpdateWindowStates(newStates);
       }
-    }, [template.count, windowStates.length, syncSettings.symbol, syncSettings.interval, activeAsset.symbol, activeTimeframe, chartType, onUpdateWindowStates]);
+    }, [template.count, windowStates.length, syncSettings.symbol, syncSettings.interval,
+      activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe, chartType, onUpdateWindowStates,allAssets]);
 
     // Handle Symbol Sync: When syncSettings.symbol is on and activeAsset changes, propagate to all windows
     useEffect(() => {
       if (syncSettings.symbol && windowStates.length > 0) {
-        const isOutdated = windowStates.some((w) => w.symbol !== activeAsset.symbol || w.source!==(activeAsset.source||activeAsset.exchange)||w.marketType!==activeAsset.marketType);
+        const isOutdated = windowStates.some((w) => w.symbol !== activeAsset.symbol || w.source!==(activeAsset.source||activeAsset.exchange)||w.marketType!==activeAsset.marketType||
+          w.chainId!==activeAsset.chainId||w.pairAddress!==activeAsset.pairAddress);
         if (isOutdated) {
-          const updated = windowStates.map((w) => ({ ...w, symbol: activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType }));
+          const updated = windowStates.map((w) => ({ ...w, symbol: activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType,
+            chainId:activeAsset.chainId,pairAddress:activeAsset.pairAddress }));
           onUpdateWindowStates(updated);
         }
       }
     }, [syncSettings.symbol, activeAsset.symbol, activeAsset.source,activeAsset.exchange,
-      activeAsset.marketType,windowStates,onUpdateWindowStates]);
+      activeAsset.marketType,activeAsset.chainId,activeAsset.pairAddress,windowStates,onUpdateWindowStates]);
 
     // Handle Interval Sync: When syncSettings.interval is on and activeTimeframe changes, propagate to all windows
     useEffect(() => {
@@ -331,7 +337,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
     }, [syncSettings.interval, activeTimeframe, onUpdateWindowStates]);
 
     const paneSignature=windowStates.slice(0,template.count).map(win=>
-      [win.symbol,win.source||'',win.marketType||'',win.timeframe].join('|')).join('~');
+      [win.symbol,win.source||'',win.marketType||'',win.chainId||'',win.pairAddress||'',win.timeframe].join('|')).join('~');
     useEffect(()=>{
       if(template.count<=1)return;
       let closed=false;
@@ -352,7 +358,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
         }));
       }
       return ()=>{closed=true;stops.forEach(stop=>stop());};
-    },[template.count,paneSignature,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,activeTimeframe]);
+    },[template.count,paneSignature,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
+      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe,allAssets]);
 
     // Mouse Drag Listeners for Resizing Dividers and Custom Grid
     useEffect(() => {
@@ -527,7 +534,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
           onClick={() => {
             setActiveWindowIndex(winIndex);
             if(!win.source)onUpdateWindowStates(windowStates.map((v,i)=>i===winIndex?
-              {...v,source:winAsset.source||winAsset.exchange,marketType:winAsset.marketType}:v));
+              {...v,source:winAsset.source||winAsset.exchange,marketType:winAsset.marketType,
+                chainId:winAsset.chainId,pairAddress:winAsset.pairAddress}:v));
             if (!syncSettings.symbol) setActiveAsset(winAsset);
             if (!syncSettings.interval) setActiveTimeframe(winTimeframe);
           }}
