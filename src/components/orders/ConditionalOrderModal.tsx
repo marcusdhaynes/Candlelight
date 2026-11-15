@@ -797,7 +797,7 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
               className="px-4 py-1.5 rounded-lg bg-[#2962ff] text-white hover:bg-[#1e53e5] font-bold text-xs transition shadow-md flex items-center gap-1.5"
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              {orderToEdit ? 'Save Changes' : 'Create Conditional Order'}
+              {orderToEdit ? 'Save & Re-arm Revision' : 'Create Conditional Order'}
             </button>
           </div>
         </div>

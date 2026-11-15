@@ -76,6 +76,9 @@ export interface ConditionalOrder {
   lastTriggeredAt?: number;
   lastConditionSatisfied?: boolean;
   triggerCount: number;
+  /** Historical executions from earlier revisions are retained for audit. */
+  priorTriggerCount?:number;
+  rearmCount?:number;
   maxTriggers: number; // 1 for IF/AND/OR, unlimited (9999) for WHENEVER
   notes?: string;
   sourceDependency?: {

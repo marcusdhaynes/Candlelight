@@ -1287,15 +1287,22 @@ export default function App() {
     setConditionalOrders((prev) => {
       const idx = prev.findIndex((o) => o.id === order.id);
       if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = safeOrder;
+        const next = [...prev],previous=prev[idx];
+        // Saving an edited rule is an explicit new revision. Preserve earlier
+        // execution totals, but clear the active revision's trigger/edge state.
+        next[idx] = {...safeOrder,
+          priorTriggerCount:(previous.priorTriggerCount||0)+previous.triggerCount,
+          rearmCount:(previous.rearmCount||0)+1,
+          triggerCount:0,lastTriggeredAt:undefined,lastConditionSatisfied:false,
+          status:!permitted?'paused':previous.status==='paused'?'paused':'active',
+        };
         return next;
       }
       return [safeOrder, ...prev];
     });
     setActiveNotification({
       id: String(Date.now()),
-      message: permitted ? `Conditional order "${order.title}" saved.` : `Rule "${order.title}" saved paused (unsupported condition or missing market identity).`,
+      message: permitted ? `Conditional order "${order.title}" saved or re-armed; prior fills remain in history.` : `Rule "${order.title}" saved paused (unsupported condition or missing market identity).`,
       type: 'info',
     });
   }, []);
