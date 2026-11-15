@@ -480,7 +480,11 @@ export default function App() {
     const saved = localStorage.getItem('tv_layout_sync_settings');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed=JSON.parse(saved);
+        if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))
+          return {...DEFAULT_SYNC_SETTINGS,...Object.fromEntries(
+            Object.entries(DEFAULT_SYNC_SETTINGS).map(([key,value])=>
+              [key,typeof parsed[key]===typeof value?parsed[key]:value]))};
       } catch {}
     }
     return DEFAULT_SYNC_SETTINGS;
@@ -516,10 +520,14 @@ export default function App() {
     const saved = localStorage.getItem('tv_chart_window_states');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const list=JSON.parse(saved);
+        if(Array.isArray(list)&&list.length>0&&list.length<=16&&list.every(
+          (v:any)=>v&&typeof v.id==='string'&&typeof v.symbol==='string'&&
+          typeof v.timeframe==='string'))return list;
       } catch {}
     }
-    return [{ id: 'win-0', symbol: 'ARBUSD', timeframe: '1m' as Timeframe }];
+    return [{ id:'win-0',symbol:activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,
+      marketType:activeAsset.marketType,timeframe:activeTimeframe }];
   });
 
   const [activeWindowIndex, setActiveWindowIndex] = useState<number>(0);
@@ -527,7 +535,10 @@ export default function App() {
     const saved = localStorage.getItem('tv_chart_splits');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const splits=JSON.parse(saved);
+        if(Array.isArray(splits)&&splits.length<=8&&splits.length>0&&
+          splits.every((v:unknown)=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=100))
+          return splits;
       } catch {}
     }
     return [50, 50];
@@ -1117,7 +1128,7 @@ export default function App() {
           return spec.size;
         };
         const match=next.positions.find(p=>p.symbol===order.symbol
-          && p.exchange===(activeAsset.source||activeAsset.exchange));
+          && p.exchange===(activeAsset.source||activeAsset.exchange)&&p.marketType===activeAsset.marketType);
         if(order.action==='enter_long'||order.action==='enter_short'){
           const kind=spec.orderType==='limit'?'limit':'market';
           const price=kind==='limit'?(spec.limitPrice||0):activeAsset.price;
@@ -1206,13 +1217,13 @@ export default function App() {
         }
         if (cond.dependencyType === 'position') {
           const pos = paperPositions.find((p) => p.symbol === activeAsset.symbol &&
-            p.exchange===(activeAsset.source||activeAsset.exchange));
+            p.exchange===(activeAsset.source||activeAsset.exchange)&&p.marketType===activeAsset.marketType);
           if (!pos) return false;
           if (cond.operator === 'pnl_above_percent') {
             return pos.unrealizedPnLPct >= (cond.thresholdValue || 0);
           }
           if (cond.operator === 'pnl_below_percent') {
-            return pos.unrealizedPnLPct <= -(cond.thresholdValue || 0);
+            return pos.unrealizedPnLPct <= -Math.abs(cond.thresholdValue ?? 0);
           }
         }
         if (cond.dependencyType === 'alert') {
@@ -1346,13 +1357,16 @@ export default function App() {
     setActiveAsset(match);
     setActiveTimeframe(idea.timeframe);
     handleSetChartType(idea.chartType);
-    setDrawings(structuredClone(idea.drawings));
+    setDrawingsForMarket(match,structuredClone(idea.drawings));
+    setWindowStates(prev=>prev.map((win,i)=>i===activeWindowIndex?
+      {...win,symbol:match.symbol,source:match.source||match.exchange,
+        marketType:match.marketType,timeframe:idea.timeframe}:win));
     setIndicators(structuredClone(idea.indicators));
     setActiveNotification({id:String(Date.now()),message:'Chart restored from local saved charts.',type:'info'});
   };
   const activePosition =
     paperPositions.find(p => p.symbol===activeAsset.symbol &&
-      p.exchange===(activeAsset.source||activeAsset.exchange)) || null;
+      p.exchange===(activeAsset.source||activeAsset.exchange) && p.marketType===activeAsset.marketType) || null;
   const closeReviewPosition=paperPositions.find(p=>p.id===closeReviewId);
   const closeQuantity=Number(closeReviewQty);
   const closeValid=!!closeReviewPosition && Number.isFinite(closeQuantity) &&
@@ -1462,6 +1476,7 @@ export default function App() {
             isLogScale={isLogScale}
             isPercentScale={isPercentScale}
             openPosition={activePosition}
+            openPositions={paperPositions}
             onClosePosition={handleClosePosition}
             allAssets={assets}
             windowStates={windowStates}

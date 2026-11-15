@@ -1019,7 +1019,7 @@ export const MainChart = React.memo(
               style={{ top: `${positionY}px` }}
             >
               <div className="px-1.5 py-0.5 bg-[#2962ff] text-white font-bold text-[10px]">
-                1L
+                {openPosition.side==='Long'?'L':'S'}
               </div>
               <div className="px-1.5 py-0.5 border-r border-[#2962ff]/40 text-[#787b86] hover:text-white cursor-pointer transition">
                 TP

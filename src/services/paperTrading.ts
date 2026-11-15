@@ -173,9 +173,9 @@ export function updatePaperStops(input: PaperPortfolio,id:string,tp?:number,sl?:
 export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now()):PaperPortfolio{
   if(!isFreshPaperQuote(asset,at))return input;
   const venue=asset.source||asset.exchange;
-  if(!input.positions.some(p=>p.symbol===asset.symbol && p.exchange===venue))return input;
+  if(!input.positions.some(p=>p.symbol===asset.symbol && p.exchange===venue && p.marketType===asset.marketType))return input;
   let next:PaperPortfolio={...input,positions:input.positions.map(p=>{
-    if(p.symbol!==asset.symbol||p.exchange!==venue)return p;
+    if(p.symbol!==asset.symbol||p.exchange!==venue||p.marketType!==asset.marketType)return p;
     if(!p.trailingPercent)return {...p,currentPrice:asset.price,lastMarkedAt:at};
     const anchor=p.side==='Long'?
       Math.max(p.trailingAnchor||p.currentPrice,asset.price):
@@ -189,7 +189,7 @@ export function markPaperPositions(input:PaperPortfolio,asset:Asset,at=Date.now(
   next=recalculatePaperPortfolio(next);
   // Execute TP/SL on the real observed tick (not an optimistic assumed fill).
   for(const p of [...next.positions]){
-    if(p.symbol!==asset.symbol||p.exchange!==venue)continue;
+    if(p.symbol!==asset.symbol||p.exchange!==venue||p.marketType!==asset.marketType)continue;
     const hitSL=p.sl!==undefined&&(p.side==='Long'?asset.price<=p.sl:asset.price>=p.sl);
     if(hitSL){next=closePaperPosition(next,p.id,asset.price,undefined,at);continue;}
     if(p.tpLevels?.length){

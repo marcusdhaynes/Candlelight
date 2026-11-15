@@ -47,7 +47,8 @@ export const WatchlistPanel: React.FC<WatchlistPanelProps> = React.memo(({
 
   const [isDetailsCollapsed, setIsDetailsCollapsed] = useState<boolean>(() => {
     const saved = localStorage.getItem('tv_watchlist_details_collapsed');
-    return saved !== null ? JSON.parse(saved) : false;
+    if(saved===null)return false;
+    try{return JSON.parse(saved)===true;}catch{return false;}
   });
 
   React.useEffect(() => {

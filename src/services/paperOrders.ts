@@ -147,7 +147,7 @@ export function evaluatePaperOrders(p:PaperPortfolio,a:Asset,at=Date.now()):Pape
   if(!notExpired.length)return markPaperPositions(next,a,at);
   const venue=a.source||a.exchange;
   for(const order of [...notExpired]){
-    if(order.symbol!==a.symbol||order.exchange!==venue)continue;
+    if(order.symbol!==a.symbol||order.exchange!==venue||order.marketType!==a.marketType)continue;
     const triggerReached=order.side==='Long'?a.price>=order.price:a.price<=order.price;
     const triggered=order.kind==='stop-limit' && (order.status==='triggered'||triggerReached);
     if(order.kind==='stop-limit' && triggered && order.status!=='triggered'){

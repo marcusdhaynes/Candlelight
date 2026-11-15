@@ -44,6 +44,7 @@ interface MultiChartWorkspaceProps {
   isLogScale: boolean;
   isPercentScale: boolean;
   openPosition?: PaperPosition | null;
+  openPositions?: PaperPosition[];
   onClosePosition?: (id: string) => void;
   allAssets: Asset[];
   windowStates: ChartWindowState[];
@@ -178,6 +179,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       isLogScale,
       isPercentScale,
       openPosition,
+      openPositions,
       onClosePosition,
       allAssets,
       windowStates,
@@ -314,7 +316,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
           onUpdateWindowStates(updated);
         }
       }
-    }, [syncSettings.symbol, activeAsset.symbol, onUpdateWindowStates]);
+    }, [syncSettings.symbol, activeAsset.symbol, activeAsset.source,activeAsset.exchange,
+      activeAsset.marketType,windowStates,onUpdateWindowStates]);
 
     // Handle Interval Sync: When syncSettings.interval is on and activeTimeframe changes, propagate to all windows
     useEffect(() => {
@@ -582,7 +585,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
               currentColor={currentColor}
               isLogScale={isLogScale}
               isPercentScale={isPercentScale}
-              openPosition={openPosition}
+              openPosition={openPositions?.find(pos=>pos.symbol===winAsset.symbol &&
+                pos.exchange===(winAsset.source||winAsset.exchange) && pos.marketType===winAsset.marketType) || null}
               onClosePosition={onClosePosition}
               onOpenConditionalOrder={onOpenConditionalOrder}
             />
