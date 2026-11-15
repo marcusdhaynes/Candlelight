@@ -5,9 +5,11 @@ import {ruleCanActivate,ruleMatchesMarket} from './conditionalSafety';
 import {matchesExactMarket} from './marketIdentity';
 import type {Drawing} from '../types';
 import {drawingConditionMet} from './drawingConditions';
+import {indicatorConditionMet,type IndicatorSignal} from './indicatorSignals';
 
 export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:number|undefined,
-  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>,drawings:readonly Drawing[]=[],previousAt?:number):boolean{
+  portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>,drawings:readonly Drawing[]=[],
+  previousAt?:number,indicator?:IndicatorSignal):boolean{
   const threshold=cond.thresholdValue;
   if(cond.dependencyType==='alert')
     return !!cond.dependencyId&&alertEvents.has(cond.dependencyId)&&cond.operator==='triggered';
@@ -18,6 +20,8 @@ export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:numb
     if(cond.operator==='pnl_below_percent')return position.unrealizedPnLPct<=-Math.abs(threshold!);
     return false;
   }
+  if(cond.dependencyType==='indicator')
+    return !!indicator&&indicatorConditionMet(cond.dependencyId||'',cond.operator,threshold!,indicator);
   if(cond.dependencyType==='drawing'){
     const d=drawings.find(d=>d.id===cond.dependencyId);
     return !!d&&drawingConditionMet(d,cond.operator,market.price,previous,
@@ -34,9 +38,9 @@ export function ruleConditionMet(cond:SingleCondition,market:Asset,previous:numb
 }
 export function ruleConditionsMet(order:ConditionalOrder,market:Asset,previous:number|undefined,
   portfolio:PaperPortfolio,alertEvents:ReadonlySet<string>,
-  drawings:readonly Drawing[]=[],previousAt?:number):boolean{
+  drawings:readonly Drawing[]=[],previousAt?:number,indicator?:IndicatorSignal):boolean{
   if(!ruleCanActivate(order)||!ruleMatchesMarket(order,market))return false;
-  const values=order.conditions.map(c=>ruleConditionMet(c,market,previous,portfolio,alertEvents,drawings,previousAt));
+  const values=order.conditions.map(c=>ruleConditionMet(c,market,previous,portfolio,alertEvents,drawings,previousAt,indicator));
   if(!values.length)return false;
   if(order.conditionLogic==='IF (AND)')return values.every(Boolean);
   if(order.conditionLogic==='IF (OR)')return values.some(Boolean);

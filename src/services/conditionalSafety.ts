@@ -13,6 +13,11 @@ export function conditionSupported(c:SingleCondition):boolean {
   if(c.dependencyType==='price')
     return ['crosses_above','crosses_below','touches','greater_than','less_than'].includes(c.operator)
       &&Number.isFinite(c.thresholdValue)&&Number(c.thresholdValue)>0;
+  if(c.dependencyType==='indicator')
+    return ['rsi14','price_minus_sma20'].includes(c.dependencyId||'')&&
+      ['crosses_above','crosses_below','greater_than','less_than'].includes(c.operator)&&
+      Number.isFinite(c.thresholdValue)&&
+      (c.dependencyId!=='rsi14'||(c.thresholdValue!>=0&&c.thresholdValue!<=100));
   return false;
 }
 export const ruleCanActivate=(o:ConditionalOrder):boolean=>

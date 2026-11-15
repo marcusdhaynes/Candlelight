@@ -31,4 +31,11 @@ const loss={...rule,conditions:[{...rule.conditions[0],dependencyType:'position'
  operator:'pnl_below_percent' as const,thresholdValue:-5}]};
 assert.equal(ruleConditionsMet(loss,{...a,price:94},100,marked,new Set()),true);
 assert.equal(ruleConditionsMet({...loss,conditions:[{...loss.conditions[0],thresholdValue:5}]},{...a,price:94},100,marked,new Set()),true);
-console.log('Round 03 market-bound conditional triggers and single alert event tests passed.');
+const indicatorRule={...rule,conditions:[{...rule.conditions[0],dependencyType:'indicator' as const,
+ dependencyId:'rsi14',operator:'crosses_above' as const,thresholdValue:70}]};
+const sample={candleTime:120,current:{rsi14:72},previous:{rsi14:68}};
+assert.equal(ruleConditionsMet(indicatorRule,a,99,p,new Set()),false);
+assert.equal(ruleConditionsMet(indicatorRule,a,99,p,new Set(),[],undefined,sample),true);
+assert.equal(ruleConditionsMet(indicatorRule,a,99,p,new Set(),[],undefined,
+ {candleTime:180,current:{rsi14:75},previous:{rsi14:72}}),false);
+console.log('Market-bound conditional triggers, one-shot alerts, and finalized RSI conditions passed.');

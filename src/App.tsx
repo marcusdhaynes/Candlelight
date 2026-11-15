@@ -55,6 +55,7 @@ import { Bell } from 'lucide-react';
 import WebBuildBanner from './updates/WebBuildBanner';
 import {ruleCanActivate,ruleMatchesMarket} from './services/conditionalSafety';
 import {ruleConditionsMet,ruleEligibleOnTick} from './services/conditionalEvaluation';
+import {closedMinuteRun,appendClosedMinute,completedIndicatorSignal,type IndicatorSignal} from './services/indicatorSignals';
 import {marketIdentity,alertMarketIdentity,matchesExactMarket} from './services/marketIdentity';
 import {paperLedgerCriticalChanged} from './services/paperPersistence';
 import {loadRiskPolicy,saveRiskPolicy,evaluateRiskPolicy} from './services/riskCenter';
@@ -537,7 +538,7 @@ export default function App() {
     return next;
   },[riskPolicy]);
 
-  const executeObservedTick=useCallback((market:Asset,at:number,events:string[]=[])=>{
+  const executeObservedTick=useCallback((market:Asset,at:number,events:string[]=[],indicator?:IndicatorSignal)=>{
     if(!isFreshPaperQuote(market,at))return;
     const key=marketIdentity(market),previous=previousRulePrices.current[key];
     const previousAt=previousRuleTimes.current[key];
@@ -552,7 +553,9 @@ export default function App() {
         for(let i=0;i<record.orders.length;i++){
           const order=orders[i];
           if(order.status!=='active'||!ruleCanActivate(order)||!ruleMatchesMarket(order,market))continue;
-          const met=ruleConditionsMet(order,market,previous,portfolio,eventIds,drawingsByMarket[key]||[],previousAt);
+          const dependsOnIndicator=order.conditions.some(c=>c.dependencyType==='indicator');
+          if(dependsOnIndicator!==Boolean(indicator))continue;
+          const met=ruleConditionsMet(order,market,previous,portfolio,eventIds,drawingsByMarket[key]||[],previousAt,indicator);
           // Re-arm WHENEVER only after a false observation. Alert dependencies
           // require an actual new event, never a persisted "triggered" flag.
           if(order.conditionLogic==='WHENEVER' && Boolean(order.lastConditionSatisfied)!==met){
@@ -576,6 +579,48 @@ export default function App() {
     });
   },[applyRuleToPortfolio,drawingsByMarket]);
 
+  const indicatorMarketKeys=[...new Set(paperAccounts.accounts.flatMap(record=>
+    record.orders.filter(o=>o.status==='active'&&ruleCanActivate(o)&&
+      o.conditions.some(c=>c.dependencyType==='indicator')).map(marketIdentity)))].sort().join('~');
+  // Indicator automation has a dedicated 1m verified-trade subscription per market.
+  // It never uses ticker/REST snapshots, synthesized bars or open candles.
+  useEffect(()=>{
+    const keys=indicatorMarketKeys.split('~').filter(Boolean);
+    if(!keys.length)return;
+    let cancelled=false;
+    const stops:Array<()=>void>=[];
+    for(const key of keys){
+      const market=marketCatalogRef.current.find(a=>marketIdentity(a)===key);
+      if(!market)continue;
+      let history:OHLCV[]=[],liveClosed:OHLCV[]=[];
+      let lastSignalAt=0,pending:IndicatorSignal|undefined;
+      void fetchHistoricalData(market,'1m').then(data=>{
+        if(cancelled)return;
+        history=closedMinuteRun([...data,...liveClosed]);
+      }).catch(()=>{ /* Missing history leaves indicator rules unarmed. */ });
+      stops.push(subscribeRealMarketData(market,'1m',{
+        onCandleTick:(bar,isClosed)=>{
+          if(cancelled||!isClosed)return;
+          liveClosed=appendClosedMinute(liveClosed,bar);
+          history=appendClosedMinute(history,bar);
+          const signal=completedIndicatorSignal(history);
+          if(signal&&signal.candleTime>lastSignalAt){
+            lastSignalAt=signal.candleTime;pending=signal;
+          }
+        },
+        onPriceUpdate:(price,_ch,_pct,origin)=>{
+          if(cancelled||origin!=='stream'||!pending||!Number.isFinite(price)||price<=0)return;
+          const signal=pending;pending=undefined;
+          const at=Date.now();
+          executeObservedTick({...market,price,quoteStatus:'live',
+            quoteUpdatedAt:at,streamConnected:true},at,[],signal);
+        },
+        onMarketEvent:recordFeedEvent,
+        onOrderBook:()=>{},onTrade:()=>{},onStatusChange:()=>{},
+      }));
+    }
+    return ()=>{cancelled=true;stops.forEach(stop=>stop());};
+  },[indicatorMarketKeys,assets.length,executeObservedTick,recordFeedEvent]);
   // Held paper positions and pending orders need real, venue-scoped stream
   // updates; REST snapshots must never fill a pending order or protective stop.
   const heldMarketKeys=[...new Set(paperAccounts.accounts.flatMap(record=>[

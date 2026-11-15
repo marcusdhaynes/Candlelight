@@ -203,9 +203,10 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
             updated.dependencyLabel = firstAlert ? `Alert: ${firstAlert.title}` : 'Price Alert';
             updated.operator = 'triggered';
           } else if (updates.dependencyType === 'indicator') {
-            updated.dependencyLabel = 'RSI (14)';
+            updated.dependencyId = 'rsi14';
+            updated.dependencyLabel = 'RSI (14) · completed 1m';
             updated.thresholdValue = 70;
-            updated.operator = 'greater_than';
+            updated.operator = 'crosses_above';
           } else if (updates.dependencyType === 'position') {
             updated.dependencyLabel = `${activeAsset.symbol} Open Position`;
             updated.operator = 'pnl_above_percent';
@@ -471,7 +472,7 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
                       >
                         <option value="drawing">📐 Drawing (Trendline / Zone)</option>
                         <option value="alert">🔔 Alert Event</option>
-                        <option value="indicator" disabled title="Not implemented">📊 Technical Indicator (RSI/SMA)</option>
+                        <option value="indicator">📊 RSI / Price − SMA20 (1m candle close)</option>
                         <option value="price">💲 Exact Price Level</option>
                         <option value="position">💼 Position PnL / Equity</option>
                         <option value="volume" disabled title="Not implemented">🌊 Volume Surge</option>
@@ -532,6 +533,25 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
                     </div>
                   </div>
 
+                  {cond.dependencyType==='indicator'&&(
+                    <div className="mt-1 pt-1.5 border-t border-[#2a2e39]/60 space-y-1">
+                      <label className="flex items-center gap-2 text-[11px] text-[#aeb9c9]">
+                        Completed 1-minute indicator
+                        <select value={cond.dependencyId||'rsi14'}
+                          onChange={e=>handleUpdateCondition(cond.id,{
+                            dependencyId:e.target.value,
+                            dependencyLabel:e.target.value==='rsi14'?'RSI (14) · completed 1m':'Close − SMA (20) · completed 1m',
+                            thresholdValue:e.target.value==='rsi14'?70:0,
+                            operator:'crosses_above',
+                          })}
+                          className="px-2 py-1 bg-[#131722] border border-[#2a2e39] rounded text-white">
+                          <option value="rsi14">RSI (14)</option>
+                          <option value="price_minus_sma20">Close − SMA (20)</option>
+                        </select>
+                      </label>
+                      <p className="text-[10px] text-[#99a6b7]">Only finalized, consecutive real 1m candles qualify. No trigger without verified history and a live trade print. Browser must remain open.</p>
+                    </div>
+                  )}
                   {/* If drawing, allow selecting which drawing on chart */}
                   {cond.dependencyType === 'drawing' && drawings.length > 0 && (
                     <div className="mt-1 pt-1.5 border-t border-[#2a2e39]/60 flex items-center gap-2 text-[11px]">
