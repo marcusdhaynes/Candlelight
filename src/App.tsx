@@ -64,22 +64,36 @@ function readLocalJson<T>(key: string, fallback: T): T {
   try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw) as T; }
   catch { return fallback; }
 }
+function preserveInvalidPreference(key:string){
+  try{
+    const saved=localStorage.getItem(key),backup='candlelight_invalid_pref_backup_'+key;
+    if(saved&&!localStorage.getItem(backup))localStorage.setItem(backup,saved);
+  }catch(error){console.warn('Unable to back up invalid saved preference',key,error);}
+}
+const storedAssetValid=(value:unknown):value is Asset=>{
+  if(!value||typeof value!=='object')return false;
+  const asset=value as Asset;
+  return typeof asset.symbol==='string'&&!!asset.symbol &&
+    typeof asset.exchange==='string'&&!!asset.exchange&&
+    typeof asset.marketType==='string'&&Number.isFinite(asset.price)&&
+    typeof asset.currency==='string';
+};
 export default function App() {
   // State: Assets & Selection (Default to PF_ARBUSD / ARBUSD perpetual matching screenshot)
   const [assets, setAssets] = useState<Asset[]>(() => {
-    const saved = localStorage.getItem('tv_assets') || localStorage.getItem('tv_assets_v4');
+    const saved = readLocalJson<unknown>('tv_assets',null) ?? readLocalJson<unknown>('tv_assets_v4',null);
+    // Old raw asset-list storage is no longer an authoritative exchange directory.
     let base = INITIAL_ASSETS;
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 500) base = parsed;
-      } catch { /* keep bundled catalog */ }
+    if(saved){
+      if(Array.isArray(saved)&&saved.length>500&&saved.every(storedAssetValid))base=saved;
+      else preserveInvalidPreference(localStorage.getItem('tv_assets')?'tv_assets':'tv_assets_v4');
     }
     try {
       const custom = JSON.parse(localStorage.getItem('candlelight_saved_markets_v1') || '[]') as Asset[];
-      if (!Array.isArray(custom)) return base;
-      const seen = new Set(base.map(assetIdentity));
-      return [...base, ...custom.filter(a => {
+      if(!Array.isArray(custom))return base;
+      const seen=new Set(base.map(assetIdentity));
+      return [...base,...custom.filter(a => {
+        if(!storedAssetValid(a))return false;
         const id = assetIdentity(a);
         if (seen.has(id)) return false;
         seen.add(id);
@@ -94,8 +108,10 @@ export default function App() {
     if (savedSym) {
       const exact = assets.find(a => a.symbol === savedSym && (a.source || a.exchange) === savedVenue && (a.marketType || '') === savedType);
       if (exact) return exact;
-      const found = assets.find(a => a.symbol === savedSym);
-      if (found) return found;
+      if(!savedVenue){
+        const matches=assets.filter(a=>a.symbol===savedSym);
+        if(matches.length===1)return matches[0];
+      }
     }
     return INITIAL_ASSETS[0];
   });
@@ -163,7 +179,12 @@ export default function App() {
 
   const [drawingsByMarket,setDrawingsByMarket]=useState<Record<string,Drawing[]>>(()=>{
     const saved=readLocalJson<Record<string,Drawing[]>|null>('tv_drawings_by_market_v1',null);
-    if(saved&&typeof saved==='object'&&!Array.isArray(saved))return saved;
+    if(saved&&typeof saved==='object'&&!Array.isArray(saved)){
+      if(Object.values(saved).every(rows=>Array.isArray(rows)&&rows.every(d=>d&&
+        typeof d.id==='string'&&typeof d.type==='string'&&Array.isArray(d.points))))
+        return saved;
+      preserveInvalidPreference('tv_drawings_by_market_v1');
+    }
     // Only assign old global drawings to the exact market recorded in
     // the prior version; don't project them across every symbol.
     const old=readLocalJson<Drawing[]>('tv_drawings',[]);
@@ -594,10 +615,18 @@ export default function App() {
 
   const [savedLayouts, setSavedLayouts] = useState<SavedChartLayout[]>(() => {
     const saved = localStorage.getItem('tv_saved_chart_layouts');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
+    if(saved){
+      try{
+        const parsed=JSON.parse(saved);
+        if(Array.isArray(parsed)&&parsed.length>0&&parsed.every((layout:any)=>
+          layout&&typeof layout.id==='string'&&typeof layout.name==='string'&&
+          typeof layout.templateId==='string'&&Array.isArray(layout.windows)&&
+          layout.windows.every((win:any)=>win&&typeof win.symbol==='string'&&
+            Object.prototype.hasOwnProperty.call(TIMEFRAME_SECONDS,win.timeframe))&&
+          layout.syncSettings&&typeof layout.syncSettings==='object'&&
+          typeof layout.autosave==='boolean'))return parsed;
+        preserveInvalidPreference('tv_saved_chart_layouts');
+      }catch{preserveInvalidPreference('tv_saved_chart_layouts');}
     }
     return [
       {
@@ -608,7 +637,9 @@ export default function App() {
         syncSettings: DEFAULT_SYNC_SETTINGS,
         autosave: true,
         shareEnabled: false,
-        windows: [{ id: 'win-0', symbol: 'ARBUSD', timeframe: '60' as Timeframe }],
+        windows: [{id:'win-0',symbol:activeAsset.symbol,
+          source:activeAsset.source||activeAsset.exchange,marketType:activeAsset.marketType,
+          timeframe:activeTimeframe}],
         activeWindowIndex: 0,
       },
     ];
@@ -625,8 +656,9 @@ export default function App() {
         const list=JSON.parse(saved);
         if(Array.isArray(list)&&list.length>0&&list.length<=16&&list.every(
           (v:any)=>v&&typeof v.id==='string'&&typeof v.symbol==='string'&&
-          typeof v.timeframe==='string'))return list;
+          typeof v.timeframe==='string'&&Object.prototype.hasOwnProperty.call(TIMEFRAME_SECONDS,v.timeframe)))return list;
       } catch {}
+      preserveInvalidPreference('tv_chart_window_states');
     }
     return [{ id:'win-0',symbol:activeAsset.symbol,source:activeAsset.source||activeAsset.exchange,
       marketType:activeAsset.marketType,timeframe:activeTimeframe }];

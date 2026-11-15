@@ -69,15 +69,20 @@ export const TradeJournalModal: React.FC<TradeJournalModalProps> = ({
     catch(e){console.warn('Journal opening balance could not be saved',e);}
   };
   const [trades, setTrades] = useState<JournalTrade[]>(() => {
-    const saved = localStorage.getItem('tradingview_journal_trades');
-    if (saved) {
-      try {
+    let saved:string|null=null;
+    try{saved=localStorage.getItem('tradingview_journal_trades');}catch{}
+    if(saved){
+      try{
         const restored=JSON.parse(saved);
-        return Array.isArray(restored)?restored.filter(t=>t&&typeof t.id==='string'&&
-          typeof t.openDate==='string'&&Number.isFinite(t.netReturn)) : [];
-      } catch (e) {
-        console.error('Failed to parse saved journal trades', e);
-      }
+        if(Array.isArray(restored)&&restored.every(t=>t&&typeof t.id==='string'&&
+          typeof t.openDate==='string'&&typeof t.symbol==='string'&&
+          Number.isFinite(t.netReturn)&&Array.isArray(t.setups)&&Array.isArray(t.mistakes)))
+          return restored;
+      }catch(e){console.warn('Unreadable journal saved entries',e);}
+      // Never silently discard individual trades from a partially corrupt saved journal.
+      try{if(!localStorage.getItem('candlelight_journal_recovery_backup_v1'))
+        localStorage.setItem('candlelight_journal_recovery_backup_v1',saved);}
+      catch(e){console.warn('Could not back up unreadable journal',e);}
     }
     // A real journal starts empty; examples must be explicitly imported.
     return [];
