@@ -114,9 +114,14 @@ export function isStoredPaperLedgerValid(raw:unknown):raw is PaperAccountsState{
 function preserveLedger(original:string):boolean{
   try{
     const old=localStorage.getItem(PAPER_RECOVERY_BACKUP_KEY);
-    if(!old)localStorage.setItem(PAPER_RECOVERY_BACKUP_KEY,original);
-    else if(old!==original)localStorage.setItem(PAPER_RECOVERY_BACKUP_KEY+'-'+Date.now(),original);
-    return localStorage.getItem(PAPER_RECOVERY_BACKUP_KEY)!==null;
+    if(old!==original){
+      // The primary backup always follows the CURRENT damaged ledger shown in
+      // recovery UI. Archive any older backup first, never overwrite it.
+      if(old!==null)localStorage.setItem(
+        PAPER_RECOVERY_BACKUP_KEY+'-archive-'+Date.now()+'-'+Math.random().toString(36).slice(2),old);
+      localStorage.setItem(PAPER_RECOVERY_BACKUP_KEY,original);
+    }
+    return localStorage.getItem(PAPER_RECOVERY_BACKUP_KEY)===original;
   }catch(e){console.error('Unable to back up unreadable paper accounts',e);return false;}
 }
 export function isPaperStorageBlocked():boolean{
