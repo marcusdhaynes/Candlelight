@@ -764,7 +764,7 @@ export const JournalTradeLog: React.FC<JournalTradeLogProps> = ({
                         Profit/Loss Ratio
                       </div>
                       <div className="text-xl font-bold font-mono text-white mt-0.5">
-                        {stats.winLossRatio.toFixed(2)} :1
+                        {stats.lossTrades?stats.winLossRatio.toFixed(2)+' :1':'N/A'}
                       </div>
                     </div>
 

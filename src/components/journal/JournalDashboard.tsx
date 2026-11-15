@@ -274,7 +274,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
             <span className="text-[#232836]">•</span>
             <div className="flex items-center gap-1">
               <span className="text-[#848e9c]">PF:</span>
-              <span className="font-bold text-[#00e5ff]">{displayStats.winLossRatio.toFixed(2)} :1</span>
+              <span className="font-bold text-[#00e5ff]">{displayStats.lossTrades?displayStats.profitFactor.toFixed(2):'N/A'}</span>
             </div>
           </div>
         </div>
@@ -409,7 +409,7 @@ export const JournalDashboard: React.FC<JournalDashboardProps> = ({
                 <div>
                   <div className="text-[11px] text-[#848e9c] font-medium tracking-tight">P/L Ratio</div>
                   <div className="text-xl font-bold font-mono text-white mt-0.5">
-                    {displayStats.winLossRatio.toFixed(2)} :1
+                    {displayStats.lossTrades?displayStats.winLossRatio.toFixed(2)+' :1':'N/A'}
                   </div>
                 </div>
                 <div className="mt-2 space-y-1.5">

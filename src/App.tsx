@@ -874,12 +874,20 @@ export default function App() {
     // 2. Fetch Real 24h Ticker data (high, low, volume, 24h price change)
     fetchRealTicker24h(activeAsset).then((ticker) => {
       if (!isCancelled && ticker) {
-        setActiveAsset((prev) => ({
-          ...prev,
-          ...ticker,
-        }));
+        setActiveAsset(prev=>{
+          const keepLive=prev.quoteStatus==='live'&&!!prev.quoteUpdatedAt&&
+            Date.now()-prev.quoteUpdatedAt<30000&&ticker.quoteStatus!=='live';
+          return {...prev,...ticker,...(keepLive?{price:prev.price,quoteStatus:prev.quoteStatus,
+            quoteUpdatedAt:prev.quoteUpdatedAt}:{})};
+        });
         setAssets((prev) =>
-          prev.map((a) => (assetIdentity(a) === assetIdentity(activeAsset) ? { ...a, ...ticker } : a))
+          prev.map((a) => {
+            if(assetIdentity(a)!==assetIdentity(activeAsset))return a;
+            const keepLive=a.quoteStatus==='live'&&!!a.quoteUpdatedAt&&
+              Date.now()-a.quoteUpdatedAt<30000&&ticker.quoteStatus!=='live';
+            return {...a,...ticker,...(keepLive?{price:a.price,quoteStatus:a.quoteStatus,
+              quoteUpdatedAt:a.quoteUpdatedAt}:{})};
+          })
         );
       }
     });

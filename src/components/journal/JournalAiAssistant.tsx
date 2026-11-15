@@ -77,7 +77,7 @@ export const JournalAiAssistant: React.FC<JournalAiAssistantProps> = ({
         ? ranked.map(s => `${s.name}: ${s.winRate}% observed win rate; net return ${s.netReturn}`).join('\n')
         : 'No setup labels exist in saved trades. Add setup tags to compare historical results.';
     } else {
-      reply = `Saved trades: ${trades.length}. Closed: ${stats.closedTrades}; wins: ${stats.winTrades}; observed win rate: ${stats.winRate}%; profit factor: ${stats.profitFactor}. These are historical journal statistics only, not a promise of compounding, profitability or future performance.`;
+      reply = `Saved trades: ${trades.length}. Closed: ${stats.closedTrades}; wins: ${stats.winTrades}; observed win rate: ${stats.winRate}%; profit factor: ${stats.lossTrades?stats.profitFactor:"N/A (no losing trades)"}. These are historical journal statistics only, not a promise of compounding, profitability or future performance.`;
     }
     setMessages(prev => [...prev, {
       id: `insight-${Date.now()}`, sender: 'ai', text: reply, time: 'Just now',
@@ -211,7 +211,7 @@ export const JournalAiAssistant: React.FC<JournalAiAssistantProps> = ({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask your AI coach anything about your trades, setups, or risk habits..."
+          placeholder="Ask about recorded trades, setup tags, or measured statistics..."
           className="flex-1 bg-transparent px-3 py-2 text-xs text-white outline-none placeholder-[#787b86]"
         />
         <button
