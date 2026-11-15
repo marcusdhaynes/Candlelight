@@ -255,6 +255,8 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
 
     // Track dragging divider
     const containerRef = useRef<HTMLDivElement>(null);
+    const allAssetsRef=useRef(allAssets);
+    allAssetsRef.current=allAssets;
     const draggingRef = useRef<{
       type: 'col' | 'row' | 'inner-col' | 'inner-row';
       index: number;
@@ -288,7 +290,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       const neededCount = template.count;
       if (windowStates.length < neededCount) {
         const newStates = [...windowStates];
-        const defaultAssets = [activeAsset, ...allAssets.filter((a) => a.symbol !== activeAsset.symbol)];
+        const defaultAssets = [activeAsset, ...allAssetsRef.current.filter((a) => a.symbol !== activeAsset.symbol)];
         const defaultTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1D'];
 
         for (let i = windowStates.length; i < neededCount; i++) {
@@ -309,7 +311,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       }
     }, [template.count, windowStates.length, syncSettings.symbol, syncSettings.interval,
       activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe, chartType, onUpdateWindowStates,allAssets]);
+      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe, chartType, onUpdateWindowStates,allAssets.length]);
 
     // Handle Symbol Sync: When syncSettings.symbol is on and activeAsset changes, propagate to all windows
     useEffect(() => {
@@ -344,7 +346,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       const stops:Array<()=>void>=[];
       const seen=new Set<string>();
       for(const win of windowStates.slice(0,template.count)){
-        const asset=resolveWindowAsset(win,allAssets,activeAsset);
+        const asset=resolveWindowAsset(win,allAssetsRef.current,activeAsset);
         if(!asset)continue;
         const key=chartIdentity(asset,win.timeframe);
         if(seen.has(key)||(marketIdentity(asset)===marketIdentity(activeAsset)&&win.timeframe===activeTimeframe))continue;
@@ -359,7 +361,7 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
       }
       return ()=>{closed=true;stops.forEach(stop=>stop());};
     },[template.count,paneSignature,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe,allAssets]);
+      activeAsset.chainId,activeAsset.pairAddress,activeTimeframe,allAssets.length]);
 
     // Mouse Drag Listeners for Resizing Dividers and Custom Grid
     useEffect(() => {

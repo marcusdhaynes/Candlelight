@@ -171,6 +171,9 @@ export default function App() {
     return saved && watchlists.some(w=>w.id===saved) ? saved : watchlists[0].id;
   });
 
+  // Store latest directory without reconnecting sockets for quote-only updates.
+  const marketCatalogRef=useRef(assets);
+  marketCatalogRef.current=assets;
   // The exported Kraken catalog is bundled locally; no AI Studio server is needed.
 
   // Price Flash Map for Watchlist ticker animations
@@ -406,7 +409,7 @@ export default function App() {
   useEffect(() => {
     const wanted = new Set(monitoredAlertKeys.split('~').filter(Boolean));
     const selectedKey = alertMarketIdentity(activeAsset);
-    const targets = assets.filter(a=>wanted.has(alertMarketIdentity(a))&&alertMarketIdentity(a)!==selectedKey);
+    const targets = marketCatalogRef.current.filter(a=>wanted.has(alertMarketIdentity(a))&&alertMarketIdentity(a)!==selectedKey);
     if (!targets.length) return;
     let stopped=false, cursor=0;
     const poll = async () => {
@@ -423,7 +426,7 @@ export default function App() {
     const interval=window.setInterval(()=>{void poll();},20000);
     return ()=>{stopped=true;window.clearInterval(interval);};
   },[monitoredAlertKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-    activeAsset.chainId,activeAsset.pairAddress,assets,processPriceAlertTick]);
+    activeAsset.chainId,activeAsset.pairAddress,assets.length,processPriceAlertTick]);
 
 
   const [riskPolicy,setRiskPolicy]=useState(loadRiskPolicy);
@@ -586,7 +589,7 @@ export default function App() {
     let stopped=false;
     const unsubs:Array<()=>void>=[];
     for(const key of pending){
-      const market=assets.find(asset=>marketIdentity(asset)===key);
+      const market=marketCatalogRef.current.find(asset=>marketIdentity(asset)===key);
       if(!market)continue;
       unsubs.push(subscribeRealMarketData(market,'1m',{
         onPriceUpdate:(price,_change,_percent,origin)=>{
@@ -601,7 +604,7 @@ export default function App() {
     }
     return ()=>{stopped=true;unsubs.forEach(unsub=>unsub());};
   },[heldMarketKeys,activeAsset.symbol,activeAsset.source,activeAsset.exchange,activeAsset.marketType,
-    activeAsset.chainId,activeAsset.pairAddress,assets,executeObservedTick,processPriceAlertTick,recordFeedEvent]);
+    activeAsset.chainId,activeAsset.pairAddress,assets.length,executeObservedTick,processPriceAlertTick,recordFeedEvent]);
   useEffect(() => {
     const expire = () => setPaperAccounts(prev => {
       let changed = false;
