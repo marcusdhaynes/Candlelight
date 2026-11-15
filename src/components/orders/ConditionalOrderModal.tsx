@@ -237,6 +237,8 @@ export const ConditionalOrderModal: React.FC<ConditionalOrderModalProps> = ({
       symbol: orderToEdit?.symbol || activeAsset.symbol,
       exchange: orderToEdit ? orderToEdit.exchange : (activeAsset.source || activeAsset.exchange),
       marketType: orderToEdit ? orderToEdit.marketType : activeAsset.marketType,
+      chainId:orderToEdit?orderToEdit.chainId:activeAsset.chainId,
+      pairAddress:orderToEdit?orderToEdit.pairAddress:activeAsset.pairAddress,
       title: title || `Conditional ${action.replace('_', ' ').toUpperCase()} on ${activeAsset.symbol}`,
       conditionLogic: logicType,
       conditions,

@@ -7,6 +7,9 @@ export interface SavedChartIdea{
   savedAt:number;
   symbol:string;
   source:string;
+  marketType?:Asset['marketType'];
+  chainId?:string;
+  pairAddress?:string;
   timeframe:Timeframe;
   chartType:ChartType;
   drawings:Drawing[];
@@ -23,6 +26,9 @@ export function parseSavedCharts(text:string|null):SavedChartIdea[]{
       isRecord(row)&&typeof row.id==='string'&&typeof row.name==='string'&&
       typeof row.symbol==='string'&&typeof row.source==='string'&&
       typeof row.timeframe==='string'&&typeof row.chartType==='string'&&
+      (row.marketType===undefined||['spot','swap','futures'].includes(row.marketType as string))&&
+      (row.chainId===undefined||typeof row.chainId==='string')&&
+      (row.pairAddress===undefined||typeof row.pairAddress==='string')&&
       Array.isArray(row.drawings)&&isRecord(row.indicators)&&
       typeof row.savedAt==='number'&&Number.isFinite(row.savedAt) &&
       typeof row.note==='string');
@@ -37,6 +43,7 @@ export function createSavedChartIdea(
   if(!title)throw new Error('Choose a name for the saved chart.');
   return {id:'chart-'+at+'-'+Math.random().toString(36).slice(2,10),
     name:title.slice(0,120),note:note.trim().slice(0,5000),savedAt:at,
-    symbol:asset.symbol,source:asset.source||asset.exchange,timeframe,chartType,
+    symbol:asset.symbol,source:asset.source||asset.exchange,
+    marketType:asset.marketType,chainId:asset.chainId,pairAddress:asset.pairAddress,timeframe,chartType,
     drawings:structuredClone(drawings),indicators:structuredClone(indicators)};
 }

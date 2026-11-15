@@ -1,9 +1,9 @@
 import type {Asset} from '../types';
 import type {ConditionalOrder,SingleCondition} from '../types/conditionalOrders';
+import {matchesExactMarket} from './marketIdentity';
 /** Never execute an unbound legacy order on an identically named market. */
 export const ruleMatchesMarket=(o:ConditionalOrder,a:Asset):boolean=>
-  !!o.exchange && !!o.marketType && o.symbol===a.symbol &&
-  o.exchange===(a.source||a.exchange) && o.marketType===a.marketType;
+  !!o.exchange && !!o.marketType && matchesExactMarket(o,a);
 export function conditionSupported(c:SingleCondition):boolean {
   if(c.dependencyType==='alert')return c.operator==='triggered'&&!!c.dependencyId;
   if(c.dependencyType==='position')return ['pnl_above_percent','pnl_below_percent'].includes(c.operator)

@@ -36,6 +36,8 @@ export interface ChartWindowState {
   symbol: string;
   source?: string;
   marketType?: Asset['marketType'];
+  chainId?:string;
+  pairAddress?:string;
   timeframe: Timeframe;
   chartType?: ChartType;
   indicators?: any;

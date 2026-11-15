@@ -63,6 +63,8 @@ export interface ConditionalOrder {
   symbol: string;
   exchange?: string;
   marketType?: Asset['marketType'];
+  chainId?:string;
+  pairAddress?:string;
   title: string;
   conditionLogic: ConditionLogicType;
   conditions: SingleCondition[];

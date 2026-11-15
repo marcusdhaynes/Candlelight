@@ -11,6 +11,14 @@ assert.equal(resolveWindowAsset({id:'w',symbol:'BTCUSD',timeframe:'1m',source:'C
 assert.equal(resolveWindowAsset({id:'w',symbol:'BTCUSD',timeframe:'1m'},[a,b]),undefined);
 assert.notEqual(alertMarketIdentity({...a,pairAddress:'0x12345',chainId:'base'}),
   alertMarketIdentity({...a,pairAddress:'0x99999',chainId:'base'}));
+const poolA={...a,pairAddress:'0x12345',chainId:'base'};
+const poolB={...a,pairAddress:'0x99999',chainId:'base'};
+assert.notEqual(marketIdentity(poolA),marketIdentity(poolB));
+assert.equal(resolveWatchlistEntry(marketIdentity(poolA),[poolA,poolB]),poolA);
+assert.equal(resolveWatchlistEntry(marketIdentity(a),[poolA,poolB]),undefined);
+assert.equal(resolveWindowAsset({id:'dex',symbol:a.symbol,source:'Kraken',marketType:'spot',timeframe:'1m'},[poolA,poolB]),undefined);
+assert.equal(resolveWindowAsset({id:'dex',symbol:a.symbol,source:'Kraken',marketType:'spot',timeframe:'1m',chainId:'base',pairAddress:'0x99999'},[poolA,poolB]),poolB);
+
 assert.notEqual(alertMarketIdentity({...a,pairAddress:'0x12345',chainId:'base'}),
   alertMarketIdentity({...a,pairAddress:'0x12345',chainId:'ethereum'}));
 console.log('Market identity tests passed, including exact DEX pool scoping.');
