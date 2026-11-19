@@ -29,6 +29,12 @@ jobs:
           VITE_BUILD_SHA: ${{ github.sha }}
       - name: Stamp published commit into Pages manifest
         run: printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/version.json
+      - name: Install browser test dependencies
+        run: npm install --prefix tests/e2e --no-package-lock --ignore-scripts
+      - name: Install cross-browser engines and required system libraries
+        run: cd tests/e2e && npx playwright install --with-deps chromium firefox webkit
+      - name: Exercise workspace controls in Chrome, Firefox, WebKit and mobile smoke
+        run: cd tests/e2e && npm test
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: dist
