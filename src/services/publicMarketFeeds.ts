@@ -2,7 +2,7 @@ import type { Asset, OHLCV, Timeframe, TradeItem } from '../types';
 import { marketFetch } from './marketApi';
 import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
 import {createCoinbaseDepthState,acceptCoinbaseLevel2,coinbaseDepthRows} from './orderDepth';
-import {marketEvent,type MarketEvent} from './marketEvents';
+import {createTradeReplayGuard,marketEvent,type MarketEvent,type MarketEventMetadata} from './marketEvents';
 
 export type PublicCallbacks = {
   onPriceUpdate: (price: number, change?: number, changePct?: number, origin?: 'stream'|'ticker'|'snapshot') => void;
@@ -312,6 +312,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
   let pending: { price: number; size: number; side: 'buy'|'sell'; origin:'stream'|'snapshot' } | null = null;
   const tradeTape:TradeItem[]=[];
   let sequence=0;
+  const acceptTradeId=createTradeReplayGuard();
   const coinbaseDepth=createCoinbaseDepthState();
   let bookDirty=false,lastBookBroadcast=0;
   const status = (connected: boolean, via: string) => {
@@ -319,10 +320,12 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     cb.onStatusChange({ connected, provider: `${a.source || a.exchange} · ${via}`, latencyMs: 0 });
   };
   const tick = (price: number, size = 0, side: 'buy'|'sell' = 'buy', live = true,
-    kind:'trade'|'ticker'='trade') => {
+    kind:'trade'|'ticker'='trade',metadata:MarketEventMetadata={}) => {
     if(stopped||!Number.isFinite(price)||price<=0)return;
+    const event=marketEvent(a,live?kind:'snapshot',price,size,side,metadata);
+    cb.onMarketEvent?.(event);
+    if(live&&kind==='trade'&&!acceptTradeId(event.tradeId))return;
     if(live)lastTick=Date.now();
-    cb.onMarketEvent?.(marketEvent(a,live?kind:'snapshot',price,size,side));
     if(!live){pending={price,size:0,side,origin:'snapshot'};return;}
     if(kind==='ticker'){
       cb.onPriceUpdate(price,undefined,undefined,'ticker');
@@ -416,10 +419,27 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
             if ((raw.type === 'snapshot' || raw.type === 'l2update') &&
                 acceptCoinbaseLevel2(coinbaseDepth,raw,product))
               bookDirty=true;
-            else if(raw.type === 'ticker' && raw.product_id === product)
-              tick(Number(raw.price),Number(raw.last_size)||0,raw.side==='sell'?'sell':'buy');
+            else if(raw.type === 'ticker' && raw.product_id === product) {
+              // A ticker without its native trade ID, size and timestamp is not a verified print.
+              const size=Number(raw.last_size),tradeId=Number(raw.trade_id),when=Date.parse(raw.time||'');
+              const isPrint=Number.isSafeInteger(tradeId)&&tradeId>0&&
+                Number.isFinite(size)&&size>0&&Number.isFinite(when);
+              tick(Number(raw.price),isPrint?size:0,raw.side==='sell'?'sell':'buy',true,
+                isPrint?'trade':'ticker',
+                isPrint?{tradeId:'coinbase:'+tradeId,exchangeAt:when,
+                  ...(Number.isSafeInteger(raw.sequence)?{sequence:raw.sequence,
+                    sequenceScope:'coinbase/ticker',sequenceMode:'monotonic' as const}:{})}:{});
+            }
           } else if (source === 'binance' || source === 'binance.us') {
-            if (raw.e === 'trade') tick(Number(raw.p),Number(raw.q)||0,raw.m?'sell':'buy');
+            if (raw.e === 'trade') {
+              const size=Number(raw.q),nativeId=Number(raw.t),when=Number(raw.T);
+              const isPrint=Number.isSafeInteger(nativeId)&&nativeId>=0&&
+                Number.isFinite(size)&&size>0&&Number.isFinite(when)&&when>0;
+              tick(Number(raw.p),isPrint?size:0,raw.m?'sell':'buy',true,
+                isPrint?'trade':'ticker',
+                isPrint?{tradeId:'binance:'+nativeId,sequence:nativeId,
+                  sequenceScope:'binance/trade',sequenceMode:'monotonic',exchangeAt:when}:{});
+            }
           } else if (source === 'okx') {
             if (raw.arg?.channel === 'tickers' && Array.isArray(d) && d[0]?.instId === symbol)
               tick(Number(d[0].last),0,'buy',true,'ticker');
