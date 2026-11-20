@@ -24,7 +24,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run test:paper
       - name: Verify market ingestion recovery tests
-        run: node --test services/ingest-worker/protocol.test.mjs
+        run: node --test services/ingest-worker/protocol.test.mjs services/ingest-worker/store.test.mjs
       - name: Check standalone worker syntax
         run: |
           node --check services/ingest-worker/store.mjs

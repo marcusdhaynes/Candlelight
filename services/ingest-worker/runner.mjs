@@ -107,7 +107,7 @@ async function run(){
       while(!stopping&&connection.ws.readyState===WebSocket.OPEN&&!connection.q.overflowed){
         const batch=connection.q.drain().sort((a,b)=>a.sequence-b.sequence);
         for(const item of batch){
-          const result=await store.append(item);
+          const result=await store.append(item,'accepted',true);
           if(result.status==='gap')throw Error('Missing trade ID; verified recovery required');
           if(result.status==='inserted'){last=item.sequence;status.lastEventAt=item.receivedAt;status.ingested++;}
           else status.duplicates++;

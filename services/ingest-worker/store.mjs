@@ -80,7 +80,7 @@ export class MarketIngestStore {
         [this.session,String(reason).slice(0,500)]);
     });
   }
-  async append(trade,integrity='accepted'){
+  async append(trade,integrity='accepted',evaluateAlerts=false){
     if(trade.provider!==this.provider||trade.marketId!==this.marketId||
       trade.scope!==this.scope||!Number.isSafeInteger(trade.sequence)||
       trade.sequence<=0||typeof trade.nativeId!=='string'||
@@ -104,6 +104,40 @@ export class MarketIngestStore {
         [this.session,this.provider,this.marketId,this.scope,trade.nativeId,String(trade.sequence),
           trade.exchangeAt,trade.receivedAt,trade.price,trade.quantity,trade.side,integrity]);
       if(!r.rowCount)return {status:'duplicate'};
+      // Price rules run against the same committed trade and checkpoint.
+      // Recovery/baseline events intentionally never generate notifications.
+      if(integrity==='accepted'&&evaluateAlerts){
+        const rules=await c.query(
+          "SELECT rule_id,owner_id,trigger_count,max_triggers, "+
+          "CASE WHEN last_price IS NULL THEN false "+
+          "WHEN condition='crosses_above' THEN last_price<threshold AND $4::numeric>=threshold "+
+          "WHEN condition='crosses_below' THEN last_price>threshold AND $4::numeric<=threshold "+
+          "WHEN condition='greater_than' THEN last_price<=threshold AND $4::numeric>threshold "+
+          "WHEN condition='less_than' THEN last_price>=threshold AND $4::numeric<threshold "+
+          "ELSE false END AS fired "+
+          "FROM app_candlelight.market_alert_rules "+
+          "WHERE provider=$1 AND market_id=$2 AND stream_scope=$3 AND status='active' "+
+          "ORDER BY rule_id LIMIT 2001 FOR UPDATE",
+          [this.provider,this.marketId,this.scope,trade.price]);
+        if(rules.rows.length>2000)throw Error('Too many active alert rules; cannot evaluate atomically');
+        for(const rule of rules.rows){
+          const fired=rule.fired&&rule.trigger_count<rule.max_triggers;
+          const increment=fired?1:0;
+          await c.query(
+            "UPDATE app_candlelight.market_alert_rules SET last_price=$2::numeric,"+
+            "last_event_id=$3::uuid,trigger_count=trigger_count+$4,"+
+            "status=CASE WHEN trigger_count+$4>=max_triggers THEN 'paused' ELSE status END,"+
+            "updated_at=clock_timestamp() WHERE rule_id=$1::uuid",
+            [rule.rule_id,trade.price,r.rows[0].event_id,increment]);
+          if(fired){
+            await c.query(
+              "INSERT INTO app_candlelight.market_alert_outbox "+
+              "(rule_id,owner_id,market_event_id,triggered_price) "+
+              "VALUES($1::uuid,$2::uuid,$3::uuid,$4::numeric) ON CONFLICT DO NOTHING",
+              [rule.rule_id,rule.owner_id,r.rows[0].event_id,trade.price]);
+          }
+        }
+      }
       const advanced=await c.query("UPDATE "+SCHEMA+".market_ingest_checkpoints "+
         "SET last_native_event_id=$5,last_sequence=$6::numeric,"+
         "last_provider_at=to_timestamp($7::double precision/1000),"+
