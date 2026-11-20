@@ -14,9 +14,10 @@ export class MarketIngestStore {
     try{
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_candlelight_market_ingestor');
-      const identity=await client.query('SELECT current_user AS role_name, session_user AS login_name');
+      const identity=await client.query('SELECT current_user AS role_name, session_user AS login_name, '+
+        '(SELECT NOT (rolsuper OR rolbypassrls) FROM pg_roles WHERE rolname=session_user) AS unprivileged');
       const row=identity.rows[0];
-      if(row?.role_name!=='app_candlelight_market_ingestor' ||
+      if(row?.unprivileged!==true || row?.role_name!=='app_candlelight_market_ingestor' ||
         ['app_candlelight_market_ingestor','postgres','service_role','supabase_admin'].includes(row?.login_name))
         throw Error('Unsafe database identity: dedicated non-privileged login required');
       await client.query("SET LOCAL statement_timeout = '5000ms'");
@@ -83,7 +84,12 @@ export class MarketIngestStore {
   async append(trade,integrity='accepted',evaluateAlerts=false){
     if(trade.provider!==this.provider||trade.marketId!==this.marketId||
       trade.scope!==this.scope||!Number.isSafeInteger(trade.sequence)||
-      trade.sequence<=0||typeof trade.nativeId!=='string'||
+      trade.sequence<=0||trade.nativeId!=='coinbase:'+trade.sequence||
+      !/^(?:0|[1-9]\d{0,21})(?:\.\d{1,16})?$/.test(trade.price)||
+      !/^(?:0|[1-9]\d{0,21})(?:\.\d{1,16})?$/.test(trade.quantity)||
+      Number(trade.price)<=0||Number(trade.quantity)<=0||
+      !Number.isSafeInteger(trade.exchangeAt)||trade.exchangeAt<=0||
+      !Number.isSafeInteger(trade.receivedAt)||trade.receivedAt<=0||
       !['accepted','unverified'].includes(integrity))throw Error('Invalid trade source');
     return this.tx(async c=>{
       const current=await c.query("SELECT last_sequence::text AS last_sequence "+
@@ -104,8 +110,16 @@ export class MarketIngestStore {
         [this.session,this.provider,this.marketId,this.scope,trade.nativeId,String(trade.sequence),
           trade.exchangeAt,trade.receivedAt,trade.price,trade.quantity,trade.side,integrity]);
       if(!r.rowCount)return {status:'duplicate'};
-      // Price rules run against the same committed trade and checkpoint.
-      // Recovery/baseline events intentionally never generate notifications.
+      // Historical recovery must advance the alert comparison baseline without
+      // sending a retrospective notification for a move while the feed was absent.
+      if(!evaluateAlerts){
+        await c.query(
+          "UPDATE app_candlelight.market_alert_rules SET last_price=$4::numeric,"+
+          "last_event_id=$5::uuid,updated_at=clock_timestamp() "+
+          "WHERE provider=$1 AND market_id=$2 AND stream_scope=$3 AND status='active'",
+          [this.provider,this.marketId,this.scope,trade.price,r.rows[0].event_id]);
+      }
+      // New verified prints alone may generate outbox entries transactionally.
       if(integrity==='accepted'&&evaluateAlerts){
         const rules=await c.query(
           "SELECT rule_id,owner_id,trigger_count,max_triggers, "+
