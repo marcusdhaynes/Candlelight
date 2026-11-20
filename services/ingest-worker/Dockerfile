@@ -1,4 +1,4 @@
-FROM node:22.15.0-alpine
+FROM node:22-alpine
 WORKDIR /app
 COPY services/ingest-worker/package.json ./
 RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund

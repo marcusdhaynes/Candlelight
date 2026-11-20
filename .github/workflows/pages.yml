@@ -50,8 +50,19 @@ jobs:
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: dist
+  worker:
+    name: Verify independent ingestion service image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build isolated Node worker image
+        run: docker build -f services/ingest-worker/Dockerfile -t candlelight-ingest-worker:ci .
+      - name: Test worker inside its release image
+        run: docker run --rm candlelight-ingest-worker:ci node --test protocol.test.mjs store.test.mjs order-intent.test.mjs
   deploy:
-    needs: build
+    needs: [build, worker]
     runs-on: ubuntu-latest
     permissions:
       pages: write
