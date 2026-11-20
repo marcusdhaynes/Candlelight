@@ -20,6 +20,7 @@ import { MainChart, MainChartRef } from '../MainChart';
 import { fetchHistoricalData,subscribeRealMarketData } from '../../services/dataFeed';
 import {combineHistoryWithLive,mergeLiveCandle} from '../../services/chartCandles';
 import {chartIdentity,marketIdentity,resolveWindowAsset,matchesExactMarket} from '../../services/marketIdentity';
+import {normalizeSyncWindow,windowsEquivalent} from '../../services/chartSyncPolicy';
 import { Maximize2, Minimize2, ChevronDown, Check, RotateCcw, Columns } from 'lucide-react';
 
 interface MultiChartWorkspaceProps {
@@ -340,6 +341,93 @@ export const MultiChartWorkspace = forwardRef<MainChartRef, MultiChartWorkspaceP
 
     const paneSignature=windowStates.slice(0,template.count).map(win=>
       [win.symbol,win.source||'',win.marketType||'',win.chainId||'',win.pairAddress||'',win.timeframe].join('|')).join('~');
+
+    // The UI exposed Crosshair/Time/Date Range sync controls before their
+    // behavior existed. Bind each visible chart once and suppress echoed
+    // programmatic moves to avoid an endless synchronization loop.
+    useEffect(()=>{
+      if(template.count<=1||
+        (!syncSettings.crosshair&&!syncSettings.time&&!syncSettings.dateRange))return;
+      const peers=Array.from({length:template.count},(_,index)=>({
+        index,ref:chartRefs.current.get(index)
+      })).filter(item=>item.ref?.getChart());
+      if(peers.length<2)return;
+      let relaying=false;
+      const cleanups:Array<()=>void>=[];
+      for(const peer of peers){
+        const source=peer.ref!.getChart()!;
+        if(syncSettings.dateRange||syncSettings.time){
+          // Date Range takes priority because unlike a logical-bar index it
+          // represents an actual common UTC window across different timeframes.
+          if(syncSettings.dateRange){
+            const onRange=(input:unknown)=>{
+              if(relaying)return;
+              const window=normalizeSyncWindow(input);
+              if(!window)return;
+              relaying=true;
+              try{
+                for(const target of peers){
+                  if(target.index===peer.index)continue;
+                  const other=target.ref?.getChart();
+                  if(!other)continue;
+                  if(windowsEquivalent(normalizeSyncWindow(other.timeScale().getVisibleRange()),window))continue;
+                  try{other.timeScale().setVisibleRange({from:window.from as any,to:window.to as any});}
+                  catch{/* A different venue may lack this interval: no fabricated bars. */}
+                }
+              }finally{relaying=false;}
+            };
+            source.timeScale().subscribeVisibleTimeRangeChange(onRange);
+            cleanups.push(()=>{try{source.timeScale().unsubscribeVisibleTimeRangeChange(onRange);}catch{}});
+          }else if(syncSettings.time){
+            // Time synchronizes horizontal panning/zooming in logical bars.
+            const onLogicalRange=(input:unknown)=>{
+              if(relaying)return;
+              const window=normalizeSyncWindow(input);
+              if(!window)return;
+              relaying=true;
+              try{
+                for(const target of peers){
+                  if(target.index===peer.index)continue;
+                  const other=target.ref?.getChart();
+                  if(!other)continue;
+                  if(windowsEquivalent(normalizeSyncWindow(other.timeScale().getVisibleLogicalRange()),window))continue;
+                  try{other.timeScale().setVisibleLogicalRange(window);}
+                  catch{/* No same-range data on this pane. */}
+                }
+              }finally{relaying=false;}
+            };
+            source.timeScale().subscribeVisibleLogicalRangeChange(onLogicalRange);
+            cleanups.push(()=>{try{source.timeScale().unsubscribeVisibleLogicalRangeChange(onLogicalRange);}catch{}});
+          }
+        }
+        if(syncSettings.crosshair){
+          const onCrosshair=(param:any)=>{
+            if(relaying)return;
+            const when=typeof param?.time==='number'&&Number.isSafeInteger(param.time)?
+              param.time:null;
+            relaying=true;
+            try{
+              for(const target of peers){
+                if(target.index===peer.index)continue;
+                const chart=target.ref?.getChart(),series=target.ref?.getMainSeries();
+                if(!chart)continue;
+                const price=when!==null?target.ref?.getPriceAtTime(when):null;
+                try{
+                  if(when!==null&&series&&typeof price==='number'&&Number.isFinite(price)&&price>0)
+                    chart.setCrosshairPosition(price,when as any,series);
+                  else chart.clearCrosshairPosition();
+                }catch{/* Missing historical bar: do not invent a crosshair price. */}
+              }
+            }finally{relaying=false;}
+          };
+          source.subscribeCrosshairMove(onCrosshair);
+          cleanups.push(()=>{try{source.unsubscribeCrosshairMove(onCrosshair);}catch{}});
+        }
+      }
+      return ()=>{for(const dispose of cleanups)dispose();};
+    },[template.count,paneSignature,maximizedPaneIndex,
+      syncSettings.crosshair,syncSettings.time,syncSettings.dateRange]);
+
     useEffect(()=>{
       if(template.count<=1)return;
       let closed=false;

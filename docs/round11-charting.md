@@ -16,3 +16,14 @@ Round 11 remains open: benchmark large chart histories and 16-pane layouts, intr
 - Line/area hover shows the corresponding original OHLCV record rather than manufacturing an equal-open-high-low-close candle from its scalar plot point.
 - Same-market historical revisions and calculated-indicator redraws preserve the chart's visible time range where supported; symbol/timeframe changes still reset appropriately.
 - Exact historical bar lookup is a binary search with missing-time handling and unit assertions.
+
+## Multi-chart synchronization (increment 3)
+
+The existing Crosshair, Time, and Date Range toggles now bind to chart events instead of being inert:
+- Crosshair synchronization uses the exact shared candle timestamp and each target chart's **own recorded close**. When the target has no corresponding bar, it clears rather than inventing a crosshair price.
+- Time synchronization shares the visible logical-bar window, preserving equivalent zoom/pan in bar-count terms.
+- Date Range synchronization shares the visible actual UTC time window across different assets/timeframes, taking priority over logical sync when both toggles are enabled.
+- Programmatic range/crosshair updates suppress callbacks to prevent feedback loops. Subscriptions are removed when charts or settings change.
+- Invalid or nonfinite time/logical ranges are rejected in unit tests. Chart state remains local when synchronization is disabled.
+
+This is not a guarantee that every instrument shares the same trading sessions or candle timestamps; missing bars remain absent.

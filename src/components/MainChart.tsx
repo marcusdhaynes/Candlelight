@@ -53,6 +53,8 @@ export interface MainChartRef {
   selectRange: (days: number) => void;
   takeSnapshot: () => void;
   getChart: () => IChartApi | null;
+  getMainSeries: () => ISeriesApi<any> | null;
+  getPriceAtTime: (time:number) => number | null;
 }
 
 interface MainChartProps {
@@ -184,6 +186,9 @@ export const MainChart = React.memo(
         }
       },
       getChart: () => chartApiRef.current,
+      getMainSeries: () => mainSeriesRef.current,
+      getPriceAtTime: (time:number) =>
+        candleAtTimestamp(sourceCandlesRef.current,time)?.close ?? null,
     }));
 
     // Initialize Chart
