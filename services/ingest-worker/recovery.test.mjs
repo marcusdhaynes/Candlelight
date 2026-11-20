@@ -27,7 +27,7 @@ test('never accepts a missing checkpoint, conflicting ID or repeated cursor',asy
   checkpoint:100,marketId:market,limit:3,maxPages:3,
   requestPage:async({after})=>!after?
     {rows:[mk(104),mk(103),mk(102)],after:'older'}:
-    {rows:[mk(101),mk(100)],after:'last'}
+    {rows:[mk(100)],after:'last'}
  }).catch(e=>e);
  assert.match(missing.message,/Historical gap/);
 });
