@@ -21,6 +21,19 @@ export function parseCoinbasePrint(raw,marketId,productId,receivedAt=Date.now())
 export function parseCoinbaseRestTrade(raw,marketId,receivedAt=Date.now()){
   return trade(raw,marketId,receivedAt,'size');
 }
+/** The match channel is source-identified; last_match is a snapshot, never a new print. */
+export function parseCoinbaseMatch(raw,marketId,productId,receivedAt=Date.now()){
+  return raw?.type==='match'&&raw.product_id===productId?
+    trade(raw,marketId,receivedAt,'size'):null;
+}
+/** Heartbeat trade ID is a watermark, not an event authorizing a price fill. */
+export function parseCoinbaseHeartbeat(raw,productId,receivedAt=Date.now()){
+  const id=raw?.last_trade_id;
+  if(raw?.type!=='heartbeat'||raw.product_id!==productId||
+     !Number.isSafeInteger(id)||id<=0||
+     !Number.isFinite(receivedAt)||receivedAt<=0)return null;
+  return {lastTradeId:id,receivedAt};
+}
 export function checkSequence(previous,next){
   if(!Number.isSafeInteger(next)||next<=0)return 'invalid';
   if(previous===null)return 'baseline';
@@ -28,9 +41,10 @@ export function checkSequence(previous,next){
   if(next<=previous)return 'replay';
   return next===previous+1?'next':'gap';
 }
-/** Conservatively require the prior persisted ID to be present in the REST window. */
-export function verifiedRecovery(last,trades){
-  if(!Number.isSafeInteger(last)||last<=0||!Array.isArray(trades)||trades.length>100)
+/** Conservatively require the prior persisted ID to be present in a bounded REST window. */
+export function verifiedRecovery(last,trades,maxRecords=20000){
+  if(!Number.isSafeInteger(last)||last<=0||!Array.isArray(trades)||
+     !Number.isSafeInteger(maxRecords)||maxRecords<1||trades.length>maxRecords)
     return {ok:false,reason:'Invalid checkpoint or history window'};
   const byId=new Map();
   for(const trade of trades){

@@ -24,11 +24,12 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run test:paper
       - name: Verify market ingestion recovery tests
-        run: node --test services/ingest-worker/protocol.test.mjs services/ingest-worker/store.test.mjs services/ingest-worker/order-intent.test.mjs
+        run: node --test services/ingest-worker/protocol.test.mjs services/ingest-worker/recovery.test.mjs services/ingest-worker/store.test.mjs services/ingest-worker/order-intent.test.mjs
       - name: Check standalone worker syntax
         run: |
           node --check services/ingest-worker/store.mjs
           node --check services/ingest-worker/runner.mjs
+          node --check services/ingest-worker/recovery.mjs
           node --check services/ingest-worker/order-intent.mjs
       - run: pnpm run build
         env:

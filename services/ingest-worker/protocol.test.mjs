@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCoinbasePrint,parseCoinbaseRestTrade,checkSequence,verifiedRecovery,BoundedQueue} from './protocol.mjs';
+import {parseCoinbasePrint,parseCoinbaseRestTrade,parseCoinbaseMatch,parseCoinbaseHeartbeat,checkSequence,verifiedRecovery,BoundedQueue} from './protocol.mjs';
 const m='BTCUSD|Coinbase|spot';
 const ticker=(id,overrides={})=>({type:'ticker',product_id:'BTC-USD',trade_id:id,
   price:'95000.125',last_size:'0.003',time:'2026-11-19T12:00:00.000Z',side:'buy',...overrides});
@@ -32,4 +32,17 @@ test('bounded input queue latches overflow',()=>{
  assert.equal(q.push('c'),false);assert.equal(q.overflowed,true);
  assert.deepEqual(q.drain(),['a','b']);
  assert.equal(q.overflowed,true);
+});
+
+test('only matches, not batched tickers or last_match snapshots, count as backend prints',()=>{
+  const raw={type:'match',product_id:'BTC-USD',trade_id:18,price:'1.25',size:'0.5',
+    side:'sell',time:'2026-11-19T12:00:00Z'};
+  assert.equal(parseCoinbaseMatch(raw,m,'BTC-USD').nativeId,'coinbase:18');
+  assert.equal(parseCoinbaseMatch({...raw,type:'last_match'},m,'BTC-USD'),null);
+  assert.equal(parseCoinbaseMatch({...raw,type:'ticker'},m,'BTC-USD'),null);
+  assert.equal(parseCoinbaseMatch({...raw,product_id:'ETH-USD'},m,'BTC-USD'),null);
+  const beat=parseCoinbaseHeartbeat({type:'heartbeat',product_id:'BTC-USD',last_trade_id:19},'BTC-USD',500);
+  assert.deepEqual(beat,{lastTradeId:19,receivedAt:500});
+  assert.equal(parseCoinbaseHeartbeat({type:'heartbeat',product_id:'ETH-USD',last_trade_id:19},'BTC-USD'),null);
+  assert.equal(parseCoinbaseHeartbeat({type:'heartbeat',product_id:'BTC-USD',last_trade_id:NaN},'BTC-USD'),null);
 });
