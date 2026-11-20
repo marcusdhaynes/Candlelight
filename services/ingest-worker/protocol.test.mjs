@@ -1,17 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseCoinbasePrint,parseCoinbaseRestTrade,parseCoinbaseMatch,parseCoinbaseHeartbeat,checkSequence,verifiedRecovery,BoundedQueue} from './protocol.mjs';
+import {parseCoinbaseRestTrade,parseCoinbaseMatch,parseCoinbaseHeartbeat,checkSequence,verifiedRecovery,BoundedQueue} from './protocol.mjs';
 const m='BTCUSD|Coinbase|spot';
-const ticker=(id,overrides={})=>({type:'ticker',product_id:'BTC-USD',trade_id:id,
-  price:'95000.125',last_size:'0.003',time:'2026-11-19T12:00:00.000Z',side:'buy',...overrides});
-test('only exact and identified venue prints are executable',()=>{
-  for(const x of [ticker(null),ticker(3,{last_size:0}),ticker(3,{price:'NaN'}),
-    ticker(3,{price:'-2'}),ticker(3,{time:'bad'}),ticker(3,{product_id:'ETH-USD'}),
-    ticker(Number.MAX_SAFE_INTEGER+1)])assert.equal(parseCoinbasePrint(x,m,'BTC-USD'),null);
-  const good=parseCoinbasePrint(ticker(3),m,'BTC-USD',1234);
+const match=(id,overrides={})=>({type:'match',product_id:'BTC-USD',trade_id:id,
+  price:'95000.125',size:'0.003',time:'2026-11-19T12:00:00.000Z',side:'buy',...overrides});
+test('only individual source-identified match prints are executable',()=>{
+  for(const x of [match(null),match(3,{size:0}),match(3,{price:'NaN'}),
+    match(3,{price:'-2'}),match(3,{time:'bad'}),match(3,{product_id:'ETH-USD'}),
+    match(Number.MAX_SAFE_INTEGER+1)])assert.equal(parseCoinbaseMatch(x,m,'BTC-USD'),null);
+  const good=parseCoinbaseMatch(match(3),m,'BTC-USD',1234);
   assert.equal(good.nativeId,'coinbase:3');assert.equal(good.price,'95000.125');
   assert.equal(good.receivedAt,1234);
-  assert.equal(parseCoinbasePrint({...ticker(3),type:'snapshot'},m,'BTC-USD'),null);
+  assert.equal(parseCoinbaseMatch({...match(3),type:'ticker'},m,'BTC-USD'),null);
+  assert.equal(parseCoinbaseMatch({...match(3),type:'last_match'},m,'BTC-USD'),null);
 });
 test('checkpoint recovery refuses unprovable gaps',()=>{
  const trade=id=>parseCoinbaseRestTrade({trade_id:id,price:'1.1',size:'2.3',
