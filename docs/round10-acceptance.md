@@ -25,3 +25,10 @@ The word **Done** must not be used for Round 10 before all required gates pass.
 - [ ] Pass current GitHub Actions on the exact published main SHA and verify live Pages/version identity.
 
 Until then, Candlelight remains a research/paper-trading frontend with a **not-yet-deployed** server infrastructure. New database objects are real, but there is no claim of 24/7 live ingestion, alerts or brokerage.
+
+## Persistent-host setup prepared (not activated)
+
+- Root `render.yaml` describes the continuously running Docker background worker using Render's documented Blueprint schema.
+- Auto-deployment is intentionally OFF until a dedicated least-privilege login has been provisioned, a TLS-verified database URL entered through the host secret manager, and live provider recovery tested.
+- Render integration requires explicit user connection and any hosting-cost approval. No worker deployment has been created, and no credentials have been stored in the repository.
+- Set a restart policy and compare observed provider trade IDs to official REST records. Review any gap as a safety incident rather than accepting fabricated values.

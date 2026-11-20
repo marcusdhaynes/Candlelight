@@ -1,0 +1,16 @@
+# Explicitly inactive until secure credentials and live recovery verification exist.
+services:
+  - type: worker
+    name: candlelight-market-ingestor
+    runtime: docker
+    branch: main
+    dockerfilePath: ./services/ingest-worker/Dockerfile
+    dockerContext: .
+    autoDeployTrigger: off
+    envVars:
+      - key: CANDLELIGHT_DATABASE_URL
+        sync: false
+      - key: CANDLELIGHT_COINBASE_PRODUCT
+        value: BTC-USD
+      - key: CANDLELIGHT_MARKET_ID
+        value: BTCUSD|Coinbase|spot
