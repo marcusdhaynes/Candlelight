@@ -12,6 +12,9 @@ jobs:
   build:
     # Playwright 1.56 browsers have official dependency support on Ubuntu 24.04.
     runs-on: ubuntu-24.04
+    # Match tests/e2e's Playwright version; browsers and OS libraries are preinstalled.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -39,13 +42,6 @@ jobs:
         run: printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/version.json
       - name: Install browser test dependencies
         run: npm install --prefix tests/e2e --no-package-lock --ignore-scripts
-      - name: Restore Playwright browser binaries
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
-        with:
-          path: ~/.cache/ms-playwright
-          key: candlelight-playwright-linux-1.56.1-v1
-      - name: Install cross-browser engines and required system libraries
-        run: cd tests/e2e && npx playwright install --with-deps chromium firefox webkit
       - name: Exercise workspace controls in Chrome, Firefox, WebKit and mobile smoke
         run: cd tests/e2e && npm test
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
