@@ -52,4 +52,14 @@ assert.equal(accepts('second'),true);
 assert.equal(accepts('third'),true);
 assert.equal(accepts('first'),true,'old IDs must evict to bound memory');
 assert.equal(accepts(undefined),true,'unidentified prints are not falsely claimed deduplicated');
+const orderGuard=createTradeReplayGuard();
+assert.equal(orderGuard('coinbase-100',100,'coinbase/ticker'),true);
+assert.equal(orderGuard('coinbase-99',99,'coinbase/ticker'),false,
+  'older provider sequence must not authorize a fresh execution');
+assert.equal(orderGuard('coinbase-101',101,'coinbase/ticker'),true);
+assert.equal(orderGuard('coinbase-101',102,'coinbase/ticker'),false,
+  'repeat provider trade ID is refused despite a higher sequence');
+assert.equal(orderGuard('binance-1',1,'binance/trade'),true,
+  'sequence checks are isolated by stream scope');
+assert.equal(orderGuard('invalid',NaN,'binance/trade'),false);
 console.log('Market-data diagnostics, replay protection and sequence modes validated.');

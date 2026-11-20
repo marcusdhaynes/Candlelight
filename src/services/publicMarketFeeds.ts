@@ -324,7 +324,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
     if(stopped||!Number.isFinite(price)||price<=0)return;
     const event=marketEvent(a,live?kind:'snapshot',price,size,side,metadata);
     cb.onMarketEvent?.(event);
-    if(live&&kind==='trade'&&!acceptTradeId(event.tradeId))return;
+    if(live&&kind==='trade'&&!acceptTradeId(event.tradeId,event.sequence,event.sequenceScope))return;
     if(live)lastTick=Date.now();
     if(!live){pending={price,size:0,side,origin:'snapshot'};return;}
     if(kind==='ticker'){

@@ -104,14 +104,28 @@ export function feedFreshness(health:FeedHealth,now=Date.now(),maxAgeMs=30_000):
  * Unidentified messages remain allowed but explicitly unverified by this guard.
  * This is NOT a cross-process or durable broker idempotency guarantee.
  */
-export function createTradeReplayGuard(limit=1024):(tradeId?:string)=>boolean{
+export function createTradeReplayGuard(limit=1024):
+  (tradeId?:string,sequence?:number,scope?:string)=>boolean{
   const seen=new Set<string>(),queue:string[]=[];
+  const lastSequence=new Map<string,number>();
   const maximum=Math.max(1,Math.min(16384,Math.floor(limit)||1024));
-  return (tradeId?:string)=>{
-    if(!tradeId)return true;
-    if(seen.has(tradeId))return false;
-    seen.add(tradeId);queue.push(tradeId);
-    if(queue.length>maximum)seen.delete(queue.shift()!);
+  return (tradeId?:string,sequence?:number,scope='trade')=>{
+    if(tradeId&&seen.has(tradeId))return false;
+    // Fail closed for invalid or regressing native sequences, even if an ID is new.
+    if(sequence!==undefined){
+      if(!Number.isSafeInteger(sequence)||sequence<0)return false;
+      const prior=lastSequence.get(scope);
+      if(prior!==undefined&&sequence<=prior)return false;
+    }
+    if(tradeId){
+      seen.add(tradeId);queue.push(tradeId);
+      if(queue.length>maximum)seen.delete(queue.shift()!);
+    }
+    if(sequence!==undefined){
+      if(!lastSequence.has(scope)&&lastSequence.size>=SEQUENCE_SCOPE_LIMIT)
+        lastSequence.delete(lastSequence.keys().next().value!);
+      lastSequence.set(scope,sequence);
+    }
     return true;
   };
 }
