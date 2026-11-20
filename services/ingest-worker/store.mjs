@@ -13,11 +13,11 @@ export class MarketIngestStore {
     const client=await this.pool.connect();
     try{
       await client.query('BEGIN');
-      await client.query('SET LOCAL ROLE app_candlelight_executor');
+      await client.query('SET LOCAL ROLE app_candlelight_market_ingestor');
       const identity=await client.query('SELECT current_user AS role_name, session_user AS login_name');
       const row=identity.rows[0];
-      if(row?.role_name!=='app_candlelight_executor' ||
-        ['app_candlelight_executor','postgres','service_role','supabase_admin'].includes(row?.login_name))
+      if(row?.role_name!=='app_candlelight_market_ingestor' ||
+        ['app_candlelight_market_ingestor','postgres','service_role','supabase_admin'].includes(row?.login_name))
         throw Error('Unsafe database identity: dedicated non-privileged login required');
       await client.query("SET LOCAL statement_timeout = '5000ms'");
       const result=await fn(client);

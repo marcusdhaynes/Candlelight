@@ -9,7 +9,7 @@ test('worker refuses database owner identity even after successful SET ROLE',asy
   connect:async()=>({
    query:async(q)=>{
      calls.push(q);
-     if(q.startsWith('SELECT current_user'))return {rows:[{role_name:'app_candlelight_executor',login_name:'postgres'}]};
+     if(q.startsWith('SELECT current_user'))return {rows:[{role_name:'app_candlelight_market_ingestor',login_name:'postgres'}]};
      return {rows:[],rowCount:0};
    },
    release:()=>calls.push('release')
@@ -27,7 +27,7 @@ test('worker rolls back when transaction breaks',async()=>{
   connect:async()=>({
    query:async(q)=>{
      calls.push(q);
-     if(q.startsWith('SELECT current_user'))return {rows:[{role_name:'app_candlelight_executor',login_name:'candle_worker'}]};
+     if(q.startsWith('SELECT current_user'))return {rows:[{role_name:'app_candlelight_market_ingestor',login_name:'candle_worker'}]};
      if(q==='BOOM')throw Error('db unavailable');
      return {rows:[],rowCount:0};
    },
