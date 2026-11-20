@@ -1,44 +1,59 @@
 import type {OHLCV} from '../types';
 
-/** Accept public market candles only: do not replace newer bars with delayed ones. */
-export function mergeLiveCandle(previous:OHLCV[],tick:OHLCV):OHLCV[]{
-  if(!Number.isFinite(tick.time)||tick.time<=0 ||
-      ![tick.open,tick.high,tick.low,tick.close,tick.volume].every(Number.isFinite)||
-      tick.open<=0||tick.close<=0||tick.low<=0||tick.high<Math.max(tick.open,tick.close)||
-      tick.low>Math.min(tick.open,tick.close))return previous;
-  if(!previous.length)return [tick];
-  const last=previous[previous.length-1];
-  if(tick.time>last.time)return [...previous,tick];
-  // Incoming WS close can be for the prior interval. Replace only its matching
-  // timestamp; never overwrite the current bar or corrupt the chart's ordering.
-  const index=previous.findIndex(x=>x.time===tick.time);
-  if(index<0)return previous;
-  const original=previous[index];
-  const next={...original,
-    high:Math.max(original.high,tick.high),low:Math.min(original.low,tick.low),
-    close:tick.close,volume:Math.max(original.volume,tick.volume)};
-  const out=previous.slice();out[index]=next;return out;
+/** Reject structurally impossible price bars instead of repairing or inventing them. */
+export function validChartCandle(bar:OHLCV):boolean{
+  return !!bar&&Number.isSafeInteger(bar.time)&&bar.time>0&&
+    [bar.open,bar.high,bar.low,bar.close,bar.volume].every(Number.isFinite)&&
+    bar.open>0&&bar.close>0&&bar.low>0&&bar.volume>=0&&
+    bar.high>=Math.max(bar.open,bar.close,bar.low)&&
+    bar.low<=Math.min(bar.open,bar.close,bar.high);
 }
-/** Merge a late historical response without discarding the live current bar. */
-export function combineHistoryWithLive(history:OHLCV[],live:OHLCV[]):OHLCV[]{
-  const base=new Map<number,OHLCV>();
-  for(const bar of history){
-    if(!Number.isFinite(bar.time)||!Number.isFinite(bar.close))continue;
-    base.set(bar.time,bar);
+/** Sort and deduplicate *valid* provider bars; later occurrences win exactly by timestamp. */
+export function normalizeChartHistory(input:ReadonlyArray<OHLCV>):OHLCV[]{
+  const byTime=new Map<number,OHLCV>();
+  for(const bar of input)if(validChartCandle(bar))byTime.set(bar.time,{...bar});
+  return [...byTime.values()].sort((a,b)=>a.time-b.time);
+}
+/** Accept only a current-bar update or matching historical timestamp. */
+export function mergeLiveCandle(previous:OHLCV[],tick:OHLCV):OHLCV[]{
+  if(!validChartCandle(tick))return previous;
+  if(!previous.length)return [{...tick}];
+  const last=previous[previous.length-1];
+  if(tick.time>last.time)return [...previous,{...tick}];
+  // Caller supplies ascending bars. Search does not assume neighboring timeframes.
+  let lo=0,hi=previous.length-1,index=-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>>1,when=previous[mid].time;
+    if(when===tick.time){index=mid;break;}
+    if(when<tick.time)lo=mid+1;else hi=mid-1;
   }
-  if(!history.length)return live;
-  const latest=history[history.length-1].time;
-  for(const bar of live){
-    // Only preserve recent bars from the same market (caller resets on symbol
-    // change); historical bars are authoritative except for the active interval.
-    if(bar.time>=latest){
-      if(bar.time===latest){
-        const historic=base.get(bar.time)!;
-        base.set(bar.time,{...historic,high:Math.max(historic.high,bar.high),
-          low:Math.min(historic.low,bar.low),close:bar.close,
-          volume:Math.max(historic.volume,bar.volume)});
-      }else base.set(bar.time,bar);
-    }
+  if(index<0)return previous;
+  const prior=previous[index];
+  const out=previous.slice();
+  out[index]={...prior,high:Math.max(prior.high,tick.high),
+    low:Math.min(prior.low,tick.low),close:tick.close,
+    volume:Math.max(prior.volume,tick.volume)};
+  return out;
+}
+/**
+ * Historical bars remain authoritative for closed intervals. Live values take
+ * priority only on the most recent historical timestamp and on newer intervals.
+ * An asynchronous history response cannot erase newer live candles.
+ */
+export function combineHistoryWithLive(history:OHLCV[],live:OHLCV[]):OHLCV[]{
+  const historical=normalizeChartHistory(history);
+  const liveClean=normalizeChartHistory(live);
+  if(!historical.length)return liveClean;
+  const latestHistorical=historical[historical.length-1].time;
+  const base=new Map(historical.map(bar=>[bar.time,bar]));
+  for(const bar of liveClean){
+    if(bar.time<latestHistorical)continue;
+    const original=base.get(bar.time);
+    if(original){
+      base.set(bar.time,{...original,high:Math.max(original.high,bar.high),
+        low:Math.min(original.low,bar.low),close:bar.close,
+        volume:Math.max(original.volume,bar.volume)});
+    }else base.set(bar.time,bar);
   }
   return [...base.values()].sort((a,b)=>a.time-b.time);
 }

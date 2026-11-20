@@ -36,6 +36,8 @@ import {
   convertToHeikinAshi,
 } from '../services/indicators';
 import { DrawingOverlay } from './DrawingOverlay';
+import {mayUseIncrementalChartUpdate} from '../services/chartUpdatePolicy';
+import {marketIdentity} from '../services/marketIdentity';
 import {
   Eye,
   Settings,
@@ -129,8 +131,8 @@ export const MainChart = React.memo(
       mainSeries: ISeriesApi<any>;
       volumeSeries?: ISeriesApi<any>;
       candleCount: number;
-      firstCandleTime: number;
-      historyFingerprint:string;
+
+      renderedCandles:OHLCV[];
     } | null>(null);
 
     const indicatorsKey = useMemo(() => JSON.stringify(indicators), [indicators]);
@@ -339,24 +341,14 @@ export const MainChart = React.memo(
         chartType === 'heikin-ashi' ? convertToHeikinAshi(candles) : candles;
       const lastCandle = chartCandles[chartCandles.length - 1];
       const firstCandle = chartCandles[0];
-      const marketKey=[asset.symbol,asset.source||asset.exchange,asset.marketType].join('|');
-      // A complete history refresh (or venue change) must never use the
-      // single-candle update fast path.
-      const midCandle=chartCandles[Math.floor(chartCandles.length/2)];
-      const previousCandle=chartCandles[chartCandles.length-2];
-      const historyFingerprint=[firstCandle?.time,firstCandle?.open,firstCandle?.close,
-        midCandle?.time,midCandle?.close,previousCandle?.time,previousCandle?.close].join('|');
-
-      const bundle = seriesBundleRef.current;
-      const isSameConfig =
-        bundle !== null &&
-        bundle.marketKey === marketKey &&
-        bundle.timeframe === timeframe &&
-        bundle.historyFingerprint === historyFingerprint &&
-        bundle.chartType === chartType &&
-        bundle.indicatorsKey === indicatorsKey &&
-        bundle.firstCandleTime === firstCandle?.time &&
-        Math.abs(candles.length - bundle.candleCount) <= 2;
+      const marketKey=marketIdentity(asset);
+      // Check exact prefix equality against the rendered snapshot, not just
+      // three sampled candles. Deep historical revisions must rebuild.
+      const bundle=seriesBundleRef.current;
+      const isSameConfig=bundle!==null&&
+        bundle.marketKey===marketKey&&bundle.timeframe===timeframe&&
+        bundle.chartType===chartType&&bundle.indicatorsKey===indicatorsKey&&
+        mayUseIncrementalChartUpdate(bundle.renderedCandles,candles,indicators);
 
       // FAST PATH: Real-time incremental tick update (O(1) execution, instant)
       if (isSameConfig && bundle && lastCandle) {
@@ -436,6 +428,11 @@ export const MainChart = React.memo(
           });
         }
 
+        // Keep a copy of the data actually plotted; never retain mutable
+        // external candle objects as the historical-correction baseline.
+        if(bundle.renderedCandles.length<candles.length)
+          bundle.renderedCandles.push({...candles[candles.length-1]});
+        else bundle.renderedCandles[bundle.renderedCandles.length-1]={...candles[candles.length-1]};
         bundle.candleCount = candles.length;
         return;
       }
@@ -872,10 +869,10 @@ export const MainChart = React.memo(
         mainSeries,
         volumeSeries,
         candleCount: candles.length,
-        firstCandleTime: firstCandle?.time || 0,
-        historyFingerprint,
+        renderedCandles:candles.map(bar=>({...bar})),
       };
-    }, [asset.symbol, asset.source, asset.exchange, asset.marketType, timeframe, chartType, candles, indicatorsKey]);
+    }, [asset.symbol, asset.source, asset.exchange, asset.marketType, asset.chainId, asset.pairAddress,
+      timeframe, chartType, candles, indicatorsKey]);
 
     // Calculate dynamic Y pixel position for open position line overlay
     const [positionY, setPositionY] = useState<number | null>(null);

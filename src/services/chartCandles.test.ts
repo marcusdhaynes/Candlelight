@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type {OHLCV,Asset,IndicatorSettings} from '../types';
-import {mergeLiveCandle,combineHistoryWithLive} from './chartCandles';
+import {mergeLiveCandle,combineHistoryWithLive,normalizeChartHistory,validChartCandle} from './chartCandles';
 import {parseSavedCharts,createSavedChartIdea} from './savedCharts';
 const c=(time:number,close:number):OHLCV=>({time,open:close,high:close,low:close,close,volume:1});
 const bars=[c(100,1),c(160,2),c(220,3)];
@@ -39,3 +39,27 @@ assert.deepEqual(parseSavedCharts('not json'),[]);
 assert.deepEqual(parseSavedCharts(JSON.stringify([{name:'fake'}])),[]);
 assert.throws(()=>createSavedChartIdea(a,'1m','candlestick',[],i,'   ','',1234),/name/);
 console.log('Chart history merging and genuine locally saved chart regression tests passed.');
+
+
+// Round 11 — reject malformed history, timestamp disorder and stale amendments.
+const invalid=[
+ {...c(400,2),volume:-1},{...c(500,2),high:1},
+ {...c(600,2),close:Infinity},{...c(700,2),time:700.5}
+];
+for(const bad of invalid){
+ assert.equal(validChartCandle(bad),false);
+ assert.equal(mergeLiveCandle(bars,bad),bars);
+}
+const sorted=normalizeChartHistory([c(220,4),...invalid,c(100,1),c(220,5),c(160,2)]);
+assert.deepEqual(sorted.map(b=>[b.time,b.close]),[[100,1],[160,2],[220,5]]);
+assert.deepEqual(combineHistoryWithLive([c(220,3),c(100,1),c(160,2)],
+ [c(160,99),c(220,3.5),c(280,4),{...c(300,2),volume:-1}])
+ .map(b=>[b.time,b.close]),[[100,1],[160,2],[220,3.5],[280,4]],
+ 'Older live snapshot cannot replace closed provider history and invalid bars are discarded');
+assert.deepEqual(combineHistoryWithLive([c(280,4),c(100,1)],[c(300,5)])
+ .map(b=>b.time),[100,280,300],
+ 'Latest historical timestamp must not depend on provider response order');
+assert.deepEqual(combineHistoryWithLive([], [c(600,5),c(500,4),invalid[0]]).map(b=>b.time),[500,600]);
+assert.equal(mergeLiveCandle(bars,c(140,1)),bars,'Unmatched historical interval cannot be inserted');
+assert.equal(mergeLiveCandle(bars,{...c(220,6),volume:0})[2].volume,1,
+ 'An incomplete partial update cannot reduce previously observed volume');
