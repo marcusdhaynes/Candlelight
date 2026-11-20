@@ -8,11 +8,12 @@ test('paper position close requires confirmation and permits partial execution',
       onmessage:((event:any)=>void)|null=null;
       onclose:((event:any)=>void)|null=null;
       private timer:number|undefined;
+      private nextNativeId=1000;
       constructor(private url:string){
         setTimeout(()=>{
           this.onopen?.({});
           if(url.includes('binance'))this.timer=window.setInterval(()=>
-            this.onmessage?.({data:JSON.stringify({e:'trade',p:'105',q:'1',m:false})}),120);
+            this.onmessage?.({data:JSON.stringify({e:'trade',p:'105',q:'1',m:false,t:++this.nextNativeId,T:Date.now()})}),120);
         },25);
       }
       send(){}
