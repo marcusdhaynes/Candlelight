@@ -1,0 +1,1 @@
+{"name":"@candlelight/ingest-worker","private":true,"version":"0.1.0","type":"module","engines":{"node":">=22.15.0"},"scripts":{"test":"node --test protocol.test.mjs","start":"node runner.mjs"},"dependencies":{"pg":"8.16.3"}}

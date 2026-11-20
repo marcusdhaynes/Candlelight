@@ -23,6 +23,12 @@ jobs:
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm run lint
       - run: pnpm run test:paper
+      - name: Verify market ingestion recovery tests
+        run: node --test services/ingest-worker/protocol.test.mjs
+      - name: Check standalone worker syntax
+        run: |
+          node --check services/ingest-worker/store.mjs
+          node --check services/ingest-worker/runner.mjs
       - run: pnpm run build
         env:
           GITHUB_PAGES: 'true'
