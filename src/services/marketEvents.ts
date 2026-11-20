@@ -132,6 +132,31 @@ export function createTradeReplayGuard(limit=1024):
 export const eventIsExecutable=(e:MarketEvent):boolean=>
   e.kind==='trade'&&Number.isFinite(e.price)&&Number(e.price)>0&&
   Number.isFinite(e.size)&&Number(e.size)>0;
+/**
+ * Coinbase tickers can batch multiple executions, and last_match is a
+ * historical subscription snapshot. Only native "match" messages represent
+ * individual new prints in this browser session.
+ * Coinbase's side denotes the MAKER, so the aggressor is opposite.
+ */
+export function parseCoinbaseMatchEvent(raw:unknown,productId:string):
+  {price:number;size:number;side:'buy'|'sell';metadata:MarketEventMetadata}|null{
+  if(!raw||typeof raw!=='object')return null;
+  const item=raw as Record<string,unknown>;
+  if(item.type!=='match'||item.product_id!==productId)return null;
+  const nativeId=item.trade_id;
+  const price=Number(item.price),size=Number(item.size);
+  const receivedTime=typeof item.time==='string'?Date.parse(item.time):NaN;
+  if(typeof nativeId!=='number'||!Number.isSafeInteger(nativeId)||nativeId<=0||
+    !Number.isFinite(price)||price<=0||!Number.isFinite(size)||size<=0||
+    !Number.isFinite(receivedTime)||receivedTime<=0||
+    (item.side!=='buy'&&item.side!=='sell'))return null;
+  return {
+    price,size,side:item.side==='sell'?'buy':'sell',
+    metadata:{tradeId:'coinbase:'+nativeId,exchangeAt:receivedTime,
+      sequence:nativeId,sequenceScope:'coinbase/matches',sequenceMode:'monotonic'}
+  };
+}
+
 export const priceOrigin=(kind:MarketEventKind):MarketPriceOrigin=>
   kind==='trade'?'stream':kind==='ticker'?'ticker':'snapshot';
 export const marketEvent=(a:Asset,kind:MarketEventKind,price?:number,size?:number,

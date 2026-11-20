@@ -2,7 +2,7 @@ import type { Asset, OHLCV, Timeframe, TradeItem } from '../types';
 import { marketFetch } from './marketApi';
 import { candleBucketStart,resampleVerifiedCandles } from './candleTimeframes';
 import {createCoinbaseDepthState,acceptCoinbaseLevel2,coinbaseDepthRows} from './orderDepth';
-import {createTradeReplayGuard,marketEvent,type MarketEvent,type MarketEventMetadata} from './marketEvents';
+import {createTradeReplayGuard,marketEvent,parseCoinbaseMatchEvent,type MarketEvent,type MarketEventMetadata} from './marketEvents';
 
 export type PublicCallbacks = {
   onPriceUpdate: (price: number, change?: number, changePct?: number, origin?: 'stream'|'ticker'|'snapshot') => void;
@@ -398,7 +398,7 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
           if (m) ws?.send(JSON.stringify({ method: 'subscribe', params: {
             channel: 'ticker', symbol: [m[1].replace(/^XXBT$/, 'BTC').replace(/^XBT$/, 'BTC') + '/' + m[2]] }}));
         } else if (source === 'coinbase') ws?.send(JSON.stringify({
-          type: 'subscribe', product_ids: [coinbaseSymbol(symbol)], channels: ['ticker','level2'] }));
+          type: 'subscribe', product_ids: [coinbaseSymbol(symbol)], channels: ['ticker','matches','level2'] }));
         else if (source === 'okx') ws?.send(JSON.stringify({ op: 'subscribe', args: [{ channel: 'tickers', instId: symbol }] }));
         else if (source === 'bybit') ws?.send(JSON.stringify({ op: 'subscribe', args: ['tickers.' + symbol] }));
         else if (source === 'hyperliquid (hyperliquid)' && a.feedSymbol)
@@ -419,16 +419,13 @@ export function subscribePublicFeed(a: Asset, timeframe: Timeframe, cb: PublicCa
             if ((raw.type === 'snapshot' || raw.type === 'l2update') &&
                 acceptCoinbaseLevel2(coinbaseDepth,raw,product))
               bookDirty=true;
-            else if(raw.type === 'ticker' && raw.product_id === product) {
-              // A ticker without its native trade ID, size and timestamp is not a verified print.
-              const size=Number(raw.last_size),tradeId=Number(raw.trade_id),when=Date.parse(raw.time||'');
-              const isPrint=Number.isSafeInteger(tradeId)&&tradeId>0&&
-                Number.isFinite(size)&&size>0&&Number.isFinite(when);
-              tick(Number(raw.price),isPrint?size:0,raw.side==='sell'?'sell':'buy',true,
-                isPrint?'trade':'ticker',
-                isPrint?{tradeId:'coinbase:'+tradeId,exchangeAt:when,
-                  ...(Number.isSafeInteger(raw.sequence)?{sequence:raw.sequence,
-                    sequenceScope:'coinbase/ticker',sequenceMode:'monotonic' as const}:{})}:{});
+            else if(raw.type === 'match' && raw.product_id === product) {
+              const print=parseCoinbaseMatchEvent(raw,product);
+              if(print)tick(print.price,print.size,print.side,true,'trade',print.metadata);
+            } else if(raw.type === 'ticker' && raw.product_id === product) {
+              // Tickers are useful quotes, but may aggregate several trades.
+              // Never use ticker data as an execution-authorizing print.
+              tick(Number(raw.price),0,'buy',true,'ticker');
             }
           } else if (source === 'binance' || source === 'binance.us') {
             if (raw.e === 'trade') {

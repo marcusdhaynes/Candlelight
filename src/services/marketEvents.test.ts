@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {createTradeReplayGuard,eventIsExecutable,feedFreshness,marketEvent,priceOrigin,updateFeedHealth,validMarketEvent} from './marketEvents';
+import {createTradeReplayGuard,eventIsExecutable,feedFreshness,marketEvent,parseCoinbaseMatchEvent,priceOrigin,updateFeedHealth,validMarketEvent} from './marketEvents';
 const a={symbol:'BTCUSDT',exchange:'Binance',source:'Binance',marketType:'spot'} as any;
 for(const k of ['ticker','snapshot','book'] as const)
   assert.equal(eventIsExecutable(marketEvent(a,k,100,1)),false);
@@ -63,3 +63,21 @@ assert.equal(orderGuard('binance-1',1,'binance/trade'),true,
   'sequence checks are isolated by stream scope');
 assert.equal(orderGuard('invalid',NaN,'binance/trade'),false);
 console.log('Market-data diagnostics, replay protection and sequence modes validated.');
+
+
+const coinbaseRaw={type:'match',product_id:'BTC-USD',trade_id:502,price:'100.25',
+  size:'0.03',side:'sell',time:'2026-11-19T12:00:00Z'};
+const coinbaseMatch=parseCoinbaseMatchEvent(coinbaseRaw,'BTC-USD');
+assert.ok(coinbaseMatch);
+assert.equal(coinbaseMatch.side,'buy','Coinbase side is maker side; trade tape uses aggressor');
+assert.equal(coinbaseMatch.metadata.tradeId,'coinbase:502');
+assert.equal(coinbaseMatch.metadata.sequenceScope,'coinbase/matches');
+assert.equal(eventIsExecutable({...marketEvent(a,'trade',coinbaseMatch.price,coinbaseMatch.size),
+  ...coinbaseMatch.metadata}),true);
+for(const bad of [
+ {...coinbaseRaw,type:'ticker'}, {...coinbaseRaw,type:'last_match'},
+ {...coinbaseRaw,product_id:'ETH-USD'}, {...coinbaseRaw,trade_id:'502'},
+ {...coinbaseRaw,price:'0'}, {...coinbaseRaw,size:'0'},
+ {...coinbaseRaw,time:'bad'}, {...coinbaseRaw,side:'none'}
+])assert.equal(parseCoinbaseMatchEvent(bad,'BTC-USD'),null);
+console.log('Coinbase matches are prints; batched tickers cannot authorize paper fills.');
