@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type {OHLCV,Asset,IndicatorSettings} from '../types';
-import {mergeLiveCandle,combineHistoryWithLive,normalizeChartHistory,validChartCandle} from './chartCandles';
+import {mergeLiveCandle,combineHistoryWithLive,normalizeChartHistory,validChartCandle,candleAtTimestamp} from './chartCandles';
 import {parseSavedCharts,createSavedChartIdea} from './savedCharts';
 const c=(time:number,close:number):OHLCV=>({time,open:close,high:close,low:close,close,volume:1});
 const bars=[c(100,1),c(160,2),c(220,3)];
@@ -63,3 +63,9 @@ assert.deepEqual(combineHistoryWithLive([], [c(600,5),c(500,4),invalid[0]]).map(
 assert.equal(mergeLiveCandle(bars,c(140,1)),bars,'Unmatched historical interval cannot be inserted');
 assert.equal(mergeLiveCandle(bars,{...c(220,6),volume:0})[2].volume,1,
  'An incomplete partial update cannot reduce previously observed volume');
+
+assert.equal(candleAtTimestamp(bars,160)?.close,2);
+assert.equal(candleAtTimestamp(bars,160)?.volume,1);
+assert.equal(candleAtTimestamp(bars,170),undefined);
+assert.equal(candleAtTimestamp(bars,170.5),undefined);
+assert.equal(candleAtTimestamp([],160),undefined);

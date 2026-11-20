@@ -36,6 +36,7 @@ import {
   convertToHeikinAshi,
 } from '../services/indicators';
 import { DrawingOverlay } from './DrawingOverlay';
+import {candleAtTimestamp} from '../services/chartCandles';
 import {mayUseIncrementalChartUpdate} from '../services/chartUpdatePolicy';
 import {marketIdentity} from '../services/marketIdentity';
 import {
@@ -120,6 +121,8 @@ export const MainChart = React.memo(
     ref
   ) => {
     const chartContainerRef = useRef<HTMLDivElement>(null);
+    const sourceCandlesRef=useRef(candles);
+    sourceCandlesRef.current=candles;
     const chartApiRef = useRef<IChartApi | null>(null);
     const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const activeSeriesRef = useRef<ISeriesApi<any>[]>([]);
@@ -254,6 +257,7 @@ export const MainChart = React.memo(
         }
 
         const barData = param.seriesData.get(mainSeriesRef.current);
+        const sourceBar=candleAtTimestamp(sourceCandlesRef.current,Number(param.time));
         if (barData) {
           if ('open' in barData && 'close' in barData) {
             setHoveredCandle({
@@ -262,17 +266,12 @@ export const MainChart = React.memo(
               high: barData.high,
               low: barData.low,
               close: barData.close,
-              volume: (barData as any).volume || 0,
+              volume: sourceBar?.volume ?? 0,
             });
           } else if ('value' in barData) {
-            setHoveredCandle({
-              time: Number(barData.time),
-              open: barData.value,
-              high: barData.value,
-              low: barData.value,
-              close: barData.value,
-              volume: 0,
-            });
+            // Line/area series emit only a scalar value. The venue's original
+            // OHLCV record is authoritative when showing the hovered legend.
+            setHoveredCandle(sourceBar ?? null);
           }
         } else {
           setHoveredCandle(null);
@@ -436,6 +435,11 @@ export const MainChart = React.memo(
         bundle.candleCount = candles.length;
         return;
       }
+
+      // A historical correction or indicator refresh must not unexpectedly
+      // reset the user's zoom/pan window on the same market and timeframe.
+      const priorViewport=bundle&&bundle.marketKey===marketKey&&bundle.timeframe===timeframe
+        ? chart.timeScale().getVisibleRange() : null;
 
       // FULL REBUILD PATH: Only executed on symbol/timeframe/type/indicator change or initial load
       // Clean up previous series reliably
@@ -860,6 +864,9 @@ export const MainChart = React.memo(
 
       if (!bundle || bundle.marketKey !== marketKey || bundle.timeframe !== timeframe || (bundle.candleCount < 10 && candles.length > 10)) {
         chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, candles.length - 180), to: candles.length + 4 });
+      } else if (priorViewport) {
+        try { chart.timeScale().setVisibleRange(priorViewport); }
+        catch { /* Market history changed; retain the chart's safe fitted range. */ }
       }
       seriesBundleRef.current = {
         marketKey,

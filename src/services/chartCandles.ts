@@ -14,6 +14,19 @@ export function normalizeChartHistory(input:ReadonlyArray<OHLCV>):OHLCV[]{
   for(const bar of input)if(validChartCandle(bar))byTime.set(bar.time,{...bar});
   return [...byTime.values()].sort((a,b)=>a.time-b.time);
 }
+/** Resolve the exact bar under the crosshair without inventing an OHLCV row. */
+export function candleAtTimestamp(sortedBars:ReadonlyArray<OHLCV>,time:number):OHLCV|undefined{
+  if(!Number.isSafeInteger(time)||time<=0)return undefined;
+  let lo=0,hi=sortedBars.length-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>>1;
+    const current=sortedBars[mid].time;
+    if(current===time)return sortedBars[mid];
+    if(current<time)lo=mid+1;else hi=mid-1;
+  }
+  return undefined;
+}
+
 /** Accept only a current-bar update or matching historical timestamp. */
 export function mergeLiveCandle(previous:OHLCV[],tick:OHLCV):OHLCV[]{
   if(!validChartCandle(tick))return previous;

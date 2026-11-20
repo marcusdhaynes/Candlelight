@@ -9,3 +9,10 @@ This increment fixes verified shortcomings in the chart pipeline without rewriti
 - **Regression tests:** malformed/corrupt bars, unsorted historical responses, duplicate timestamps, late corrections, volume corrections, ongoing live updates, all calculated indicators, and DEX pool changes.
 
 Round 11 remains open: benchmark large chart histories and 16-pane layouts, introduce incremental indicator recomputation, add multi-pane synchronization regression tests, enhance snapshots and accessibility, and verify final production deployment. No superiority or performance claim is made without measurement.
+
+## Hover and navigation integrity (increment 2)
+
+- The crosshair legend now uses recorded historical volume rather than a renderer-supplied placeholder (the price-series event does not carry volume).
+- Line/area hover shows the corresponding original OHLCV record rather than manufacturing an equal-open-high-low-close candle from its scalar plot point.
+- Same-market historical revisions and calculated-indicator redraws preserve the chart's visible time range where supported; symbol/timeframe changes still reset appropriately.
+- Exact historical bar lookup is a binary search with missing-time handling and unit assertions.
