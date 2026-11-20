@@ -24,11 +24,12 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run test:paper
       - name: Verify market ingestion recovery tests
-        run: node --test services/ingest-worker/protocol.test.mjs services/ingest-worker/store.test.mjs
+        run: node --test services/ingest-worker/protocol.test.mjs services/ingest-worker/store.test.mjs services/ingest-worker/order-intent.test.mjs
       - name: Check standalone worker syntax
         run: |
           node --check services/ingest-worker/store.mjs
           node --check services/ingest-worker/runner.mjs
+          node --check services/ingest-worker/order-intent.mjs
       - run: pnpm run build
         env:
           GITHUB_PAGES: 'true'
@@ -37,6 +38,11 @@ jobs:
         run: printf '{"sha":"%s"}\n' "$GITHUB_SHA" > dist/version.json
       - name: Install browser test dependencies
         run: npm install --prefix tests/e2e --no-package-lock --ignore-scripts
+      - name: Restore Playwright browser binaries
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        with:
+          path: ~/.cache/ms-playwright
+          key: candlelight-playwright-linux-1.56.1-v1
       - name: Install cross-browser engines and required system libraries
         run: cd tests/e2e && npx playwright install --with-deps chromium firefox webkit
       - name: Exercise workspace controls in Chrome, Firefox, WebKit and mobile smoke
