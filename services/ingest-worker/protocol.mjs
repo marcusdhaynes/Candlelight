@@ -14,10 +14,6 @@ function trade(raw,marketId,receivedAt,sizeKey){
     nativeId:'coinbase:'+id,sequence:id,price,quantity,exchangeAt,receivedAt,
     side:raw.side==='sell'?'sell':raw.side==='buy'?'buy':null};
 }
-export function parseCoinbasePrint(raw,marketId,productId,receivedAt=Date.now()){
-  return raw?.type==='ticker'&&raw.product_id===productId?
-    trade(raw,marketId,receivedAt,'last_size'):null;
-}
 export function parseCoinbaseRestTrade(raw,marketId,receivedAt=Date.now()){
   return trade(raw,marketId,receivedAt,'size');
 }
