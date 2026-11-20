@@ -26,9 +26,9 @@ test('only matched broker evidence advances cumulative fills',()=>{
    brokerOrderId:'broker-1',cumulativeFilled:3,status:'partial'};
  const a=reconcileBrokerEvidence(pending,first);
  assert.equal(a.intent.state,'partially_filled');
- assert.equal(a.intent.filledQuantity,3);
+ assert.equal(a.intent.filledQuantity,'3');
  assert.equal(reconcileBrokerEvidence(a.intent,first).changed,false);
- const filled={...first,eventId:'evt-2',cumulativeFilled:10,status:'filled'};
+ const filled={...first,eventId:'evt-2',cumulativeFilled:'10',status:'filled'};
  const b=reconcileBrokerEvidence(a.intent,filled);
  assert.equal(b.intent.state,'filled');
  assert.equal(reconcileBrokerEvidence(b.intent,{...filled,eventId:'evt-3'}).changed,false);
@@ -38,6 +38,19 @@ test('only matched broker evidence advances cumulative fills',()=>{
    {...first,eventId:'evt-x',cumulativeFilled:11},
    {...first,eventId:'evt-x',cumulativeFilled:-1},
    {...first,eventId:'evt-x',cumulativeFilled:1},
-   {...first,eventId:'evt-x',status:'filled',cumulativeFilled:3}
+   {...first,eventId:'evt-x',status:'filled',cumulativeFilled:3},
+   {...first,eventId:'evt-x',brokerOrderId:''},
+   {...first,eventId:'evt-x',status:'open',cumulativeFilled:3}
  ])assert.throws(()=>reconcileBrokerEvidence(a.intent,bad));
+});
+
+test('large and fractional quantities are compared exactly, never by IEEE floating point',()=>{
+ const pending={...intent,state:'uncertain',quantity:'9007199254740992.0000000000000001',
+   filledQuantity:'0',brokerOrderId:null};
+ const event={verified:true,eventId:'evt-big-1',clientCommandId:intent.clientCommandId,
+   brokerOrderId:'broker-big',cumulativeFilled:'0.0000000000000001',status:'partial'};
+ const a=reconcileBrokerEvidence(pending,event);
+ assert.equal(a.intent.filledQuantity,'0.0000000000000001');
+ assert.throws(()=>reconcileBrokerEvidence(a.intent,{...event,eventId:'evt-big-2',
+   cumulativeFilled:'0.0000000000000000'}),/regressing/);
 });

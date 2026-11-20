@@ -33,18 +33,30 @@ export function reconcileBrokerEvidence(intent,event){
    return {intent,changed:false,reason:'Duplicate broker event'};
  if(!['dispatching','uncertain','acknowledged','partially_filled'].includes(intent.state))
    throw Error('No durable dispatch evidence for this intent');
- const requested=Number(intent.quantity),filled=Number(event.cumulativeFilled);
- if(!Number.isFinite(requested)||requested<=0||
-    !Number.isFinite(filled)||filled<0||filled>requested||
-    filled<(intent.filledQuantity||0))
+ const toUnits=value=>{
+   const text=String(value);
+   if(!/^(?:0|[1-9]\d{0,21})(?:\.\d{1,16})?$/.test(text))
+     throw Error('Invalid decimal quantity');
+   const [whole,part='']=text.split('.');
+   return BigInt(whole)*10000000000000000n+BigInt(part.padEnd(16,'0'));
+ };
+ const requested=toUnits(intent.quantity),filled=toUnits(event.cumulativeFilled),
+   already=toUnits(intent.filledQuantity??'0');
+ if(requested<=0n||filled<already||filled>requested)
    throw Error('Invalid or regressing broker fill quantity');
+ if(typeof event.brokerOrderId!=='string'||!event.brokerOrderId)
+   throw Error('Broker order ID is required for reconciliation');
  const mapping={open:'acknowledged',partial:'partially_filled',filled:'filled',
    cancelled:'cancelled',rejected:'failed'};
  const nextState=mapping[event.status];
  if(!nextState)throw Error('Unknown broker state');
  if(nextState==='filled'&&filled!==requested)throw Error('Claimed full fill without full quantity');
- if(nextState==='partially_filled'&&(filled<=0||filled>=requested))
+ if(nextState==='partially_filled'&&(filled<=0n||filled>=requested))
    throw Error('Partial fill requires an actual partial quantity');
+ if(nextState==='acknowledged'&&filled>0n)
+   throw Error('Broker open status cannot erase a recorded partial fill');
+ if(nextState==='failed'&&already>0n)
+   throw Error('Rejected status after a fill needs broker-specific reconciliation');
  return {changed:true,intent:{...intent,state:nextState,brokerOrderId:event.brokerOrderId,
-   lastBrokerEventId:event.eventId,filledQuantity:filled},reason:'Matched broker evidence'};
+   lastBrokerEventId:event.eventId,filledQuantity:String(event.cumulativeFilled)},reason:'Matched broker evidence'};
 }
